@@ -165,39 +165,88 @@ class TelegramAdapter:
             except Exception:
                 return file_bytes.decode("latin-1", errors="ignore").strip()
 
+    @staticmethod
+    def _render_bar(pct: int, length: int = 10) -> str:
+        """Render a clean text-based progress bar."""
+        filled = int(round((pct / 100) * length))
+        filled = max(0, min(length, filled))
+        return "█" * filled + "░" * (length - filled)
+
     @classmethod
     def format_html_response(cls, analysis: Dict[str, Any]) -> str:
-        """Format ATS evaluation results using clean, beautiful Telegram HTML tags."""
+        """Format ATS evaluation results using clean, beautiful Telegram HTML tags with analytics and hyperlinks."""
         score = analysis.get("ats_score", 0)
+        target_role = html.escape(str(analysis.get("target_role", "Target Role")))
+        candidate = html.escape(str(analysis.get("candidate_name", "Candidate")))
         breakdown = analysis.get("breakdown", {})
         skills_match = breakdown.get("skills_match", 0)
         exp_match = breakdown.get("experience_match", 0)
-        courses_str = analysis.get("suggested_courses_str", "None")
-        overall = analysis.get("overall_analytics", {}).get("full_text", "")
+        matched_skills = analysis.get("matched_skills", [])
+        missing_skills = analysis.get("missing_skills", [])
+        suggested_courses = analysis.get("suggested_courses", [])
+        overall_obj = analysis.get("overall_analytics", {})
+        strengths = html.escape(str(overall_obj.get("strengths", "")))
+        improvements = html.escape(str(overall_obj.get("improvement_areas", "")))
+        overall_text = html.escape(str(overall_obj.get("full_text", "")))
         ta = analysis.get("think_aloud", {})
 
         # Score badge indicator
-        badge = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
+        if score >= 80:
+            badge = "🟢"
+            status_text = "STRONG FIT"
+        elif score >= 60:
+            badge = "🟡"
+            status_text = "MODERATE FIT"
+        else:
+            badge = "🔴"
+            status_text = "NEEDS UPSKILLING"
 
+        score_bar = cls._render_bar(score, 10)
+        skills_bar = cls._render_bar(skills_match, 10)
+        exp_bar = cls._render_bar(exp_match, 10)
+
+        # Matched & Missing skill tags
+        matched_str = ", ".join([f"<code>{html.escape(s)}</code>" for s in matched_skills[:8]]) if matched_skills else "<i>None identified</i>"
+        missing_str = ", ".join([f"<code>{html.escape(s)}</code>" for s in missing_skills[:8]]) if missing_skills else "<i>None</i>"
+
+        # Suggested courses hyperlinks
+        if suggested_courses:
+            course_items = []
+            for c in suggested_courses[:4]:
+                title = html.escape(c.get("title", "Upskilling Course"))
+                url = c.get("url", "https://coursera.org")
+                provider = html.escape(c.get("provider", "Online"))
+                course_items.append(f"• <a href=\"{url}\"><b>{title}</b></a> (<i>{provider}</i>)")
+            courses_html = "\n".join(course_items)
+        else:
+            courses_html = "• <a href=\"https://www.coursera.org\"><b>Professional Upskilling Certifications</b></a> (<i>Coursera</i>)"
+
+        # Think-aloud evaluations
         title_analysis = html.escape(str(ta.get("title_analysis", "")))
         skills_analysis = html.escape(str(ta.get("skills_match", "")))
         exp_analysis = html.escape(str(ta.get("experience_match", "")))
         improvement = html.escape(str(ta.get("areas_for_improvement", "")))
-        overall_escaped = html.escape(str(overall))
-        courses_escaped = html.escape(str(courses_str))
 
         msg = (
-            f"<b>{badge} ATS Evaluation Report</b>\n"
+            f"<b>{badge} ATS Evaluation Report: {target_role}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎯 <b>ATS Score:</b> <code>{score}%</code>\n"
-            f"📊 <b>Breakdown:</b> [Skills: <code>{skills_match}%</code>, Experience: <code>{exp_match}%</code>]\n\n"
+            f"👤 <b>Candidate:</b> {candidate}\n"
+            f"🎯 <b>ATS Score:</b> <code>{score}%</code> [{status_text}]\n"
+            f"<code>[{score_bar}] {score}%</code>\n\n"
+            f"📊 <b>Detailed Analytics Breakdown:</b>\n"
+            f"• <b>Skills Match:</b> <code>{skills_match}%</code> <code>[{skills_bar}]</code>\n"
+            f"• <b>Experience Match:</b> <code>{exp_match}%</code> <code>[{exp_bar}]</code>\n\n"
+            f"✅ <b>Matched Skills:</b>\n{matched_str}\n\n"
+            f"⚠️ <b>Skill Gaps:</b>\n{missing_str}\n\n"
             f"🧠 <b>Think-Aloud Evaluation:</b>\n"
             f"• <b>Role Alignment:</b> {title_analysis}\n"
             f"• <b>Skills Match:</b> {skills_analysis}\n"
             f"• <b>Experience Match:</b> {exp_analysis}\n"
             f"• <b>Strategy & Gaps:</b> {improvement}\n\n"
-            f"🎓 <b>Suggested Courses:</b>\n{courses_escaped}\n\n"
-            f"📈 <b>Overall Analytics:</b>\n<i>{overall_escaped}</i>\n"
+            f"🎓 <b>Suggested Courses:</b>\n{courses_html}\n\n"
+            f"📈 <b>Overall Analytics:</b>\n"
+            f"💪 <i>Strengths:</i> {strengths}\n"
+            f"🚀 <i>Areas for Growth:</i> {improvements}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💡 <i>Type <b>courses</b> for direct links, <b>reset</b> to clear, or <b>helo</b> to start over!</i>"
         )
@@ -339,11 +388,23 @@ class TelegramAdapter:
             return {"ok": True, "status": "session_reset"}
 
         # Command: /courses
-        if text_lower in ["/courses", "courses"]:
+        if text_lower in ["/courses", "courses", "course", "links"]:
+            session = channel_manager.get_or_create_session(session_user_id, "telegram")
             course_items = []
-            for code, c in list(COURSE_CATALOG.items())[:8]:
-                course_items.append(f"• <a href=\"{c['url']}\">{html.escape(c['title'])}</a> (<i>{html.escape(c['provider'])}</i>)")
-            courses_msg = "🎓 <b>Top Recommended Upskilling Courses:</b>\n\n" + "\n".join(course_items)
+            if session.last_analysis and session.last_analysis.get("suggested_courses"):
+                courses_to_show = session.last_analysis.get("suggested_courses")
+                header = "🎓 <b>Tailored Upskilling Courses for Your Profile:</b>\n\n"
+            else:
+                courses_to_show = list(COURSE_CATALOG.values())[:8]
+                header = "🎓 <b>Top Recommended Upskilling Courses:</b>\n\n"
+
+            for c in courses_to_show:
+                title = html.escape(c.get("title", "Course"))
+                url = c.get("url", "https://coursera.org")
+                provider = html.escape(c.get("provider", "Online"))
+                course_items.append(f"• <a href=\"{url}\"><b>{title}</b></a> (<i>{provider}</i>)")
+
+            courses_msg = header + "\n".join(course_items)
             cls.send_message(chat_id, courses_msg)
             return {"ok": True, "status": "courses_sent"}
 
