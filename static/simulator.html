@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Channel Simulator – ATS Copilot</title>
+  <meta name="description" content="Simulate the ATS chatbot on WhatsApp, Slack, and Instagram live in your browser before cloud deployment.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    .sim-layout { display: grid; grid-template-columns: 300px 1fr; gap: 1.5rem; align-items: start; }
+    @media (max-width: 800px) { .sim-layout { grid-template-columns: 1fr; } }
+    .channel-btn { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.85rem; color: #fff; cursor: pointer; text-align: left; margin-bottom: 0.5rem; transition: all 0.2s; }
+    .channel-btn:hover { border-color: rgba(99,102,241,0.4); }
+    .channel-btn.active { border-color: rgba(99,102,241,0.6); background: rgba(99,102,241,0.1); }
+    .ch-pip { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .ch-wa-p { background: #25d366; box-shadow: 0 0 6px #25d366; }
+    .ch-sl-p { background: #e01e5a; box-shadow: 0 0 6px #e01e5a; }
+    .ch-ig-p { background: #e1306c; box-shadow: 0 0 6px #e1306c; }
+    .channel-btn div strong { display: block; font-size: 0.9rem; }
+    .channel-btn div small { color: var(--text-muted); font-size: 0.78rem; }
+    .quick-chips { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.75rem; }
+    .q-chip { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.65rem; font-size: 0.78rem; color: var(--text-muted); cursor: pointer; text-align: left; transition: all 0.2s; }
+    .q-chip:hover { background: rgba(99,102,241,0.12); border-color: rgba(99,102,241,0.4); color: #a5b4fc; }
+    .phone-frame { background: #0a0f1e; border-radius: 28px; border: 3px solid #1a2035; box-shadow: 0 20px 50px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05); overflow: hidden; display: flex; flex-direction: column; height: 600px; transition: border-color 0.3s; }
+    .phone-topbar { padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+    .phone-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+    .phone-info strong { display: block; font-size: 0.9rem; color: #fff; }
+    .phone-info small { color: #10b981; font-size: 0.72rem; }
+    .chat-area { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+    .msg-bubble { max-width: 82%; padding: 0.7rem 0.9rem; border-radius: 14px; font-size: 0.84rem; line-height: 1.5; word-break: break-word; }
+    .msg-bot { background: #1a2035; color: #e2e8f0; align-self: flex-start; border-bottom-left-radius: 4px; }
+    .msg-user { background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+    .msg-time { font-size: 0.65rem; opacity: 0.55; margin-top: 0.25rem; text-align: right; }
+    .msg-typing { background: #1a2035; padding: 0.6rem 0.9rem; border-radius: 14px; align-self: flex-start; }
+    .dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #6366f1; animation: bounce 1.2s infinite; margin: 0 1px; }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+    .phone-input-bar { padding: 0.75rem 1rem; display: flex; gap: 0.5rem; border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
+    .phone-input { flex: 1; background: #141929; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 0.6rem 1rem; color: #fff; font-size: 0.85rem; font-family: var(--font); outline: none; }
+    .phone-input:focus { border-color: rgba(99,102,241,0.5); }
+    .btn-send-circle { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #a855f7); border: none; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .webhook-info { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem 1rem; margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted); }
+    .webhook-url { color: #67e8f9; font-family: monospace; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="bg-orbs"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a href="index.html" class="nav-logo"><div class="logo-box">⚡</div><span>ATS Copilot</span></a>
+      <div class="nav-links">
+        <a href="analyzer.html">Analyzer</a>
+        <a href="batch.html">Batch</a>
+        <a href="simulator.html">Simulator</a>
+        <a href="courses.html">Courses</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="page-wrap">
+    <div class="page-header">
+      <h1>💬 Multi-Channel Bot Simulator</h1>
+      <p>Test the full conversational ATS bot experience across WhatsApp, Slack, and Instagram before live deployment.</p>
+    </div>
+
+    <div class="sim-layout">
+      <!-- Sidebar -->
+      <div>
+        <div class="card" style="margin-bottom:1rem;">
+          <div class="card-title">📱 Select Channel</div>
+          <button class="channel-btn active" data-channel="whatsapp">
+            <div class="ch-pip ch-wa-p"></div>
+            <div><strong>WhatsApp</strong><small>Meta Cloud API</small></div>
+          </button>
+          <button class="channel-btn" data-channel="slack">
+            <div class="ch-pip ch-sl-p"></div>
+            <div><strong>Slack</strong><small>Events API + /ats-check</small></div>
+          </button>
+          <button class="channel-btn" data-channel="instagram">
+            <div class="ch-pip ch-ig-p"></div>
+            <div><strong>Instagram</strong><small>Meta Graph Messaging</small></div>
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚡ Quick Test Messages</div>
+          <div class="quick-chips">
+            <button class="q-chip" data-msg="hello">👋 "hello"</button>
+            <button class="q-chip" data-msg="JD for Data Analyst: 3+ years SQL, Python, Tableau, Power BI">📋 JD: Data Analyst</button>
+            <button class="q-chip" data-msg="Resume of Jane Smith: 3 years Python, SQL, Pandas, Tableau">📄 Resume: Jane Smith</button>
+            <button class="q-chip" data-msg="JD for Software Developer: 4+ years React, FastAPI, Docker">📋 JD: Software Dev</button>
+            <button class="q-chip" data-msg="Resume of John Doe: 4 years React, Python, FastAPI, CI/CD">📄 Resume: John Doe</button>
+            <button class="q-chip" data-msg="courses">🎓 "courses"</button>
+            <button class="q-chip" data-msg="reset">🔄 "reset"</button>
+          </div>
+        </div>
+
+        <div class="webhook-info">
+          <div style="font-weight:600; color:#fff; margin-bottom:0.35rem;">🔗 Webhook Endpoints</div>
+          <div class="webhook-url" id="webhookDisplay">/webhook/whatsapp</div>
+          <div style="margin-top:0.35rem;">Verify Token: <code style="color:#a5b4fc;">ats_bot_verify_token_secret</code></div>
+        </div>
+      </div>
+
+      <!-- Phone Device -->
+      <div>
+        <div class="phone-frame" id="phoneFrame">
+          <div class="phone-topbar" id="phoneTopbar" style="background:#111827;">
+            <div class="phone-avatar" id="phoneAvatar" style="background:#25d366;">🤖</div>
+            <div class="phone-info">
+              <strong id="channelName">ATS WhatsApp Bot</strong>
+              <small>● Online — Meta Cloud API</small>
+            </div>
+          </div>
+          <div class="chat-area" id="chatArea"></div>
+          <div class="phone-input-bar" id="phoneInputBar" style="background:#0f1829;">
+            <input type="text" class="phone-input" id="chatInput" placeholder="Type a message or paste JD/Resume...">
+            <button class="btn-send-circle" id="btnSend">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="nav.js"></script>
+  <script src="ats_engine.js"></script>
+  <script>
+  (function () {
+    let activeChannel = 'whatsapp';
+    let state = 'IDLE';
+    let storedJD = '';
+    let lastResult = null;
+
+    const channelConfig = {
+      whatsapp: { name: 'ATS WhatsApp Bot', sub: 'Online — Meta Cloud API', avatarBg: '#128C7E', avatar: '🤖', topbar: '#075e54', inputbar: '#0f1829', webhook: '/webhook/whatsapp' },
+      slack:    { name: 'ATS Slack Bot', sub: 'Online — Events API', avatarBg: '#4a154b', avatar: '🟣', topbar: '#1a1d21', inputbar: '#1a1d21', webhook: '/webhook/slack' },
+      instagram:{ name: 'ATS Instagram Bot', sub: 'Online — Meta Graph API', avatarBg: '#833ab4', avatar: '🟠', topbar: '#1a1128', inputbar: '#1a1128', webhook: '/webhook/instagram' }
+    };
+
+    function applyChannelTheme(ch) {
+      const cfg = channelConfig[ch];
+      document.getElementById('channelName').textContent = cfg.name;
+      document.getElementById('phoneTopbar').querySelector('small').textContent = cfg.sub;
+      document.getElementById('phoneTopbar').style.background = cfg.topbar;
+      document.getElementById('phoneInputBar').style.background = cfg.inputbar;
+      document.getElementById('phoneAvatar').textContent = cfg.avatar;
+      document.getElementById('phoneAvatar').style.background = cfg.avatarBg;
+      document.getElementById('webhookDisplay').textContent = cfg.webhook;
+    }
+
+    document.querySelectorAll('.channel-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.channel-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeChannel = btn.dataset.channel;
+        applyChannelTheme(activeChannel);
+        state = 'IDLE'; storedJD = ''; lastResult = null;
+        document.getElementById('chatArea').innerHTML = '';
+        addBotMsg('👋 Channel switched to <strong>' + channelConfig[activeChannel].name + '</strong>. Please send a Job Description to begin.');
+      });
+    });
+
+    document.querySelectorAll('.q-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.getElementById('chatInput').value = chip.dataset.msg;
+        sendMsg();
+      });
+    });
+
+    document.getElementById('btnSend').addEventListener('click', sendMsg);
+    document.getElementById('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
+
+    function sendMsg() {
+      const input = document.getElementById('chatInput');
+      const msg = input.value.trim();
+      if (!msg) return;
+      input.value = '';
+      addUserMsg(msg);
+      showTyping();
+      setTimeout(() => { removeTyping(); processMsg(msg); }, 700);
+    }
+
+    function processMsg(msg) {
+      const lower = msg.toLowerCase().trim();
+
+      if (['reset','start over','clear'].includes(lower) || (lower === 'hello' && state === 'IDLE')) {
+        state = 'IDLE'; storedJD = ''; lastResult = null;
+        addBotMsg('👋 <strong>Welcome to ATS Copilot ' + (activeChannel === 'slack' ? `— use <code>/ats-check</code> or type below` : 'Bot') + '</strong><br><br>📋 <strong>Step 1:</strong> Send or paste a <strong>Job Description (JD)</strong> to begin evaluation.');
+        return;
+      }
+
+      if (lower === 'courses' && lastResult) {
+        const lines = lastResult.courses.map(c => `• <a href="${c.url}" target="_blank" style="color:#67e8f9;">${c.title}</a> — ${c.provider}`).join('<br>');
+        addBotMsg('🎓 <strong>Recommended Upskilling Courses:</strong><br><br>' + (lines || 'No courses found.'));
+        return;
+      }
+
+      if (state === 'IDLE' || state === 'WAITING_JD') {
+        storedJD = msg;
+        state = 'WAITING_RESUME';
+        const role = PRESETS.data_analyst.jd.includes(msg.slice(0,10)) ? 'detected role' : 'the role described';
+        addBotMsg(`✅ <strong>Job Description Received</strong><br><br>📄 <strong>Step 2:</strong> Now send the <strong>Candidate's Resume</strong> to analyze against this JD.`);
+        return;
+      }
+
+      if (state === 'WAITING_RESUME') {
+        lastResult = analyzeATS(storedJD, msg);
+        state = 'ANALYZED';
+        const r = lastResult;
+        const statusEmoji = r.atsScore >= 80 ? '🌟' : r.atsScore >= 65 ? '⚡' : '⚠️';
+        addBotMsg(
+          `🧠 <strong>Think-Aloud Evaluation:</strong><br>` +
+          `• <strong>Role:</strong> ${r.thinkAloud.role}<br>` +
+          `• <strong>Skills:</strong> ${r.thinkAloud.skills}<br>` +
+          `• <strong>Experience:</strong> ${r.thinkAloud.experience}<br><br>` +
+          `📊 <strong>ATS Score: ${r.atsScore}%</strong> ${statusEmoji}<br>` +
+          `Breakdown: [Skills match: ${r.skillsPct}%, Experience match: ${r.expPct}%]<br><br>` +
+          `🎓 <strong>Top Course:</strong> ${r.courses[0] ? `<a href="${r.courses[0].url}" target="_blank" style="color:#67e8f9;">${r.courses[0].title}</a>` : 'N/A'}<br><br>` +
+          `💡 Type <em>"courses"</em> for all links or <em>"reset"</em> to start over.`
+        );
+        return;
+      }
+
+      if (state === 'ANALYZED') {
+        state = 'IDLE'; storedJD = '';
+        addBotMsg('📋 Send a new <strong>Job Description</strong> to analyze another resume.');
+        return;
+      }
+
+      addBotMsg('Please send a <strong>Job Description</strong> to start. Type <em>"hello"</em> to see the welcome message.');
+    }
+
+    function addBotMsg(html) {
+      const area = document.getElementById('chatArea');
+      const div = document.createElement('div');
+      div.className = 'msg-bubble msg-bot';
+      div.innerHTML = `<div>${html}</div><div class="msg-time">${now()}</div>`;
+      area.appendChild(div);
+      area.scrollTop = area.scrollHeight;
+    }
+
+    function addUserMsg(text) {
+      const area = document.getElementById('chatArea');
+      const div = document.createElement('div');
+      div.className = 'msg-bubble msg-user';
+      div.innerHTML = `<div>${text}</div><div class="msg-time">${now()}</div>`;
+      area.appendChild(div);
+      area.scrollTop = area.scrollHeight;
+    }
+
+    function showTyping() {
+      const area = document.getElementById('chatArea');
+      const div = document.createElement('div');
+      div.id = 'typingIndicator';
+      div.className = 'msg-typing';
+      div.innerHTML = `<div class="dots"><span></span><span></span><span></span></div>`;
+      area.appendChild(div);
+      area.scrollTop = area.scrollHeight;
+    }
+
+    function removeTyping() {
+      const el = document.getElementById('typingIndicator');
+      if (el) el.remove();
+    }
+
+    function now() {
+      return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    // Initial welcome message
+    addBotMsg('👋 <strong>Welcome to ATS Copilot Bot!</strong><br><br>I evaluate resumes against Job Descriptions with AI-powered think-aloud scoring.<br><br>📋 <strong>Step 1:</strong> Send a <strong>Job Description</strong> to start — or click a Quick Test chip on the left!');
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Courses Catalog – ATS Copilot</title>
+  <meta name="description" content="Browse certified upskilling courses to close skill gaps in technology, marketing, HR, cloud, and more.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    .filter-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; }
+    .filter-chip { padding: 0.4rem 0.9rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
+    .filter-chip.active, .filter-chip:hover { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); color: #a5b4fc; }
+    .catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+    .cat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.6rem; transition: border-color 0.2s, transform 0.2s; }
+    .cat-card:hover { border-color: rgba(99,102,241,0.35); transform: translateY(-2px); }
+    .cat-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
+    .cat-card-title { font-size: 0.92rem; font-weight: 700; color: #fff; line-height: 1.4; }
+    .cat-card-provider { font-size: 0.78rem; color: var(--text-muted); }
+    .cat-card-level { font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.55rem; border-radius: 999px; white-space: nowrap; }
+    .lvl-beginner { background: rgba(16,185,129,0.15); color: #34d399; }
+    .lvl-intermediate { background: rgba(99,102,241,0.15); color: #a5b4fc; }
+    .lvl-advanced { background: rgba(244,63,94,0.15); color: #fb7185; }
+    .cat-card-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+    .search-wrap { position: relative; flex: 1; max-width: 320px; }
+    .search-wrap svg { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); pointer-events: none; }
+    .search-wrap input { padding-left: 2.25rem; }
+  </style>
+</head>
+<body>
+  <div class="bg-orbs"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a href="index.html" class="nav-logo"><div class="logo-box">⚡</div><span>ATS Copilot</span></a>
+      <div class="nav-links">
+        <a href="analyzer.html">Analyzer</a>
+        <a href="batch.html">Batch</a>
+        <a href="simulator.html">Simulator</a>
+        <a href="courses.html">Courses</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="page-wrap">
+    <div class="page-header">
+      <h1>🎓 Upskilling Courses Catalog</h1>
+      <p>Certified courses matched to common ATS skill gaps — searchable and filterable by category.</p>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="searchInput" placeholder="Search courses, providers, skills...">
+      </div>
+      <button class="filter-chip active" data-filter="all">All</button>
+      <button class="filter-chip" data-filter="Data Science">Data Science</button>
+      <button class="filter-chip" data-filter="Software">Software Eng.</button>
+      <button class="filter-chip" data-filter="Cloud">Cloud & DevOps</button>
+      <button class="filter-chip" data-filter="Marketing">Marketing</button>
+      <button class="filter-chip" data-filter="HR">HR</button>
+    </div>
+
+    <div class="catalog-grid" id="catalogGrid"></div>
+  </div>
+
+  <script src="nav.js"></script>
+  <script>
+  const ALL_COURSES = [
+    { title: "Python for Data Science & Applied Analytics", provider: "Coursera / IBM", category: "Data Science", level: "Intermediate", url: "https://www.coursera.org/learn/python-for-applied-data-science-ai" },
+    { title: "SQL Basics & Advanced Database Querying", provider: "Coursera / UC Davis", category: "Data Science", level: "Beginner", url: "https://www.coursera.org/learn/sql-for-data-science" },
+    { title: "Microsoft Power BI Data Analyst Professional", provider: "Microsoft / Coursera", category: "Data Science", level: "Intermediate", url: "https://www.coursera.org/professional-certificates/microsoft-power-bi-data-analyst" },
+    { title: "Tableau Business Intelligence & Visualization", provider: "Tableau Learning", category: "Data Science", level: "Intermediate", url: "https://www.tableau.com/learn/training" },
+    { title: "Machine Learning Specialization by Andrew Ng", provider: "DeepLearning.AI / Coursera", category: "Data Science", level: "Advanced", url: "https://www.coursera.org/specializations/machine-learning-introduction" },
+    { title: "Algorithms & Data Structures (Princeton)", provider: "Princeton / Coursera", category: "Software Engineering", level: "Advanced", url: "https://www.coursera.org/learn/algorithms-part1" },
+    { title: "Full Stack Cloud Developer Professional", provider: "IBM / Coursera", category: "Software Engineering", level: "Intermediate", url: "https://www.coursera.org/professional-certificates/ibm-full-stack-cloud-developer" },
+    { title: "Meta Front-End Developer (React) Certificate", provider: "Meta / Coursera", category: "Software Engineering", level: "Intermediate", url: "https://www.coursera.org/professional-certificates/meta-front-end-developer" },
+    { title: "Grokking System Design Interview", provider: "Educative.io", category: "Software Engineering", level: "Advanced", url: "https://www.educative.io/courses/grokking-the-system-design-interview" },
+    { title: "AWS Certified Solutions Architect – Associate", provider: "Amazon Web Services", category: "Cloud & DevOps", level: "Intermediate", url: "https://aws.amazon.com/certification/certified-solutions-architect-associate/" },
+    { title: "Certified Kubernetes Administrator (CKA)", provider: "Linux Foundation / CNCF", category: "Cloud & DevOps", level: "Advanced", url: "https://www.cncf.io/certification/cka/" },
+    { title: "HashiCorp Certified: Terraform Associate", provider: "HashiCorp", category: "Cloud & DevOps", level: "Intermediate", url: "https://www.hashicorp.com/certification/terraform-associate" },
+    { title: "Docker & Kubernetes: The Practical Guide", provider: "Udemy", category: "Cloud & DevOps", level: "Intermediate", url: "https://www.udemy.com/course/docker-kubernetes-the-practical-guide/" },
+    { title: "FinOps Certified Practitioner", provider: "FinOps Foundation", category: "Cloud & DevOps", level: "Intermediate", url: "https://www.finops.org/certification/" },
+    { title: "Google Digital Marketing & E-commerce Certificate", provider: "Google / Coursera", category: "Marketing", level: "Beginner", url: "https://www.coursera.org/professional-certificates/google-digital-marketing-ecommerce" },
+    { title: "Advanced Brand Strategy & P&L Management", provider: "Northwestern Kellogg", category: "Marketing", level: "Advanced", url: "https://www.coursera.org/learn/strategic-brand-management" },
+    { title: "Marketing Analytics (Meta Professional)", provider: "Meta / Coursera", category: "Marketing", level: "Advanced", url: "https://www.coursera.org/professional-certificates/meta-marketing-analytics" },
+    { title: "HubSpot Marketing Automation Certification", provider: "HubSpot Academy", category: "Marketing", level: "Intermediate", url: "https://academy.hubspot.com/" },
+    { title: "Strategic Human Resources & Compliance", provider: "SHRM / Coursera", category: "HR", level: "Intermediate", url: "https://www.coursera.org/specializations/human-resource-management" },
+    { title: "Compensation, Benefits & Total Rewards", provider: "AIHR Academy", category: "HR", level: "Intermediate", url: "https://www.aihr.com/courses/compensation-and-benefits-certificate/" },
+    { title: "People Analytics by Wharton", provider: "University of Pennsylvania", category: "HR", level: "Advanced", url: "https://www.coursera.org/learn/wharton-people-analytics" },
+    { title: "Full-Cycle Talent Acquisition & Recruitment", provider: "LinkedIn Learning", category: "HR", level: "Intermediate", url: "https://www.coursera.org/learn/recruiting-hiring-onboarding" }
+  ];
+
+  let currentFilter = 'all';
+  let searchQuery = '';
+
+  function getLevelClass(lvl) {
+    const l = lvl.toLowerCase();
+    if (l.includes('begin')) return 'lvl-beginner';
+    if (l.includes('adv')) return 'lvl-advanced';
+    return 'lvl-intermediate';
+  }
+
+  function getCategoryGroup(cat) {
+    if (cat.includes('Data')) return 'Data Science';
+    if (cat.includes('Software')) return 'Software';
+    if (cat.includes('Cloud')) return 'Cloud';
+    if (cat.includes('Marketing')) return 'Marketing';
+    if (cat === 'HR') return 'HR';
+    return cat;
+  }
+
+  function renderCatalog() {
+    const grid = document.getElementById('catalogGrid');
+    const filtered = ALL_COURSES.filter(c => {
+      const matchesFilter = currentFilter === 'all' || getCategoryGroup(c.category) === currentFilter;
+      const matchesSearch = !searchQuery || [c.title, c.provider, c.category].join(' ').toLowerCase().includes(searchQuery);
+      return matchesFilter && matchesSearch;
+    });
+
+    if (filtered.length === 0) {
+      grid.innerHTML = `<div class="placeholder-state" style="grid-column:1/-1;"><div class="ph-icon">🔍</div><p>No courses match your filters.</p></div>`;
+      return;
+    }
+
+    grid.innerHTML = filtered.map(c => `
+      <div class="cat-card">
+        <div class="cat-card-top">
+          <div class="cat-card-title">${c.title}</div>
+          <span class="cat-card-level ${getLevelClass(c.level)}">${c.level}</span>
+        </div>
+        <div class="cat-card-provider">📦 ${c.provider}</div>
+        <div style="font-size:0.75rem;"><span class="chip chip-indigo">${c.category}</span></div>
+        <div class="cat-card-footer">
+          <span style="font-size:0.75rem; color:var(--text-dim);">Certified Course</span>
+          <a href="${c.url}" target="_blank" rel="noopener" class="btn-course">Access Course ↗</a>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      currentFilter = chip.dataset.filter;
+      renderCatalog();
+    });
+  });
+
+  document.getElementById('searchInput').addEventListener('input', e => {
+    searchQuery = e.target.value.toLowerCase();
+    renderCatalog();
+  });
+
+  renderCatalog();
+  </script>
+</body>
+</html>

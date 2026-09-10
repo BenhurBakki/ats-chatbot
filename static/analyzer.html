@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ATS Analyzer – Multi-Resume PDF Upload & Scoring</title>
+  <meta name="description" content="Upload multiple PDF resumes at once, compare against a Job Description, and get ranked ATS scores with think-aloud analysis.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="shared.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    /* ── Page-specific styles ── */
+    .analyzer-layout { display: grid; grid-template-columns: 420px 1fr; gap: 1.5rem; align-items: start; }
+    @media (max-width: 1100px) { .analyzer-layout { grid-template-columns: 1fr; } }
+
+    /* Upload Zone */
+    .upload-zone-multi {
+      border: 2px dashed rgba(99,102,241,0.4);
+      border-radius: 14px;
+      padding: 2rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      background: rgba(99,102,241,0.04);
+      transition: all 0.2s;
+      position: relative;
+    }
+    .upload-zone-multi:hover, .upload-zone-multi.drag-over {
+      border-color: #6366f1;
+      background: rgba(99,102,241,0.1);
+    }
+    .upload-zone-multi input[type="file"] {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      opacity: 0; cursor: pointer; border: none; padding: 0;
+    }
+    .upload-zone-multi .uz-icon { font-size: 2.2rem; margin-bottom: 0.5rem; }
+    .upload-zone-multi h4 { font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.25rem; }
+    .upload-zone-multi p { font-size: 0.8rem; color: var(--text-muted); }
+    .upload-zone-multi .uz-hint { font-size: 0.75rem; color: #818cf8; margin-top: 0.35rem; font-weight: 600; }
+
+    /* Resume Queue List */
+    .resume-queue { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
+    .resume-item {
+      display: flex; align-items: center; gap: 0.6rem;
+      background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.6rem 0.85rem;
+      font-size: 0.85rem;
+    }
+    .resume-item-icon { font-size: 1rem; flex-shrink: 0; }
+    .resume-item-name { flex: 1; color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .resume-item-status { font-size: 0.72rem; flex-shrink: 0; }
+    .resume-item-status.parsing { color: #fbbf24; }
+    .resume-item-status.done { color: #34d399; }
+    .resume-item-status.error { color: #f87171; }
+    .btn-remove-resume { background: none; border: none; color: #6b7280; cursor: pointer; font-size: 1rem; line-height: 1; padding: 0; flex-shrink: 0; }
+    .btn-remove-resume:hover { color: #f87171; }
+
+    /* Comparison table */
+    .comparison-table { width: 100%; border-collapse: collapse; }
+    .comparison-table th {
+      background: rgba(255,255,255,0.04); padding: 0.7rem 1rem;
+      text-align: left; font-size: 0.75rem; font-weight: 700;
+      color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border);
+    }
+    .comparison-table td { padding: 0.85rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.88rem; vertical-align: middle; }
+    .comparison-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .rank-no { width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.82rem; }
+    .rank-1 { background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; }
+    .rank-2 { background: linear-gradient(135deg, #9ca3af, #d1d5db); color: #000; }
+    .rank-3 { background: linear-gradient(135deg, #b45309, #d97706); color: #fff; }
+    .rank-other { background: rgba(255,255,255,0.08); color: var(--text-muted); }
+
+    /* Individual scorecard (expandable) */
+    .scorecard-expand { cursor: pointer; }
+    .scorecard-expand:hover { color: #a5b4fc; }
+    .scorecard-detail {
+      background: rgba(99,102,241,0.06);
+      border: 1px solid rgba(99,102,241,0.2);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-top: 0.75rem;
+      animation: fadeIn 0.25s ease;
+    }
+    @keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }
+    .scorecard-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.6rem 1.5rem; align-items: start; }
+    .mini-think { font-size: 0.82rem; color: var(--text-muted); line-height: 1.6; }
+    .mini-think strong { color: #c7d2fe; }
+    .overflow-x { overflow-x: auto; }
+    .table-wrap-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; }
+
+    .section-title { font-size: 1.05rem; font-weight: 800; color: #fff; letter-spacing: -0.02em; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.5rem; }
+    .count-badge { background: rgba(99,102,241,0.2); color: #a5b4fc; font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 700; }
+
+    /* Single result panel (when only 1 resume) */
+    .single-result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 800px) { .single-result-grid { grid-template-columns: 1fr; } }
+    .skill-chips-wrap { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  </style>
+</head>
+<body>
+  <div class="bg-orbs"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a href="index.html" class="nav-logo"><div class="logo-box">⚡</div><span>ATS Copilot</span></a>
+      <div class="nav-links">
+        <a href="analyzer.html">Analyzer</a>
+        <a href="batch.html">Batch</a>
+        <a href="simulator.html">Simulator</a>
+        <a href="courses.html">Courses</a>
+      </div>
+      <button id="btnLoadDemo" class="btn-sm">⚡ Load Example</button>
+    </div>
+  </nav>
+
+  <div class="page-wrap">
+    <div class="page-header">
+      <h1>📋 Multi-Resume ATS Analyzer</h1>
+      <p>Upload <strong>multiple PDF resumes</strong> at once, analyze them all against a single Job Description, and get a ranked comparison with individual scorecards.</p>
+    </div>
+
+    <div class="analyzer-layout">
+      <!-- ═══ LEFT PANEL: Inputs ═══ -->
+      <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+
+        <!-- JD Card -->
+        <div class="card">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Job Description
+          </div>
+          <div style="margin-bottom: 0.75rem;">
+            <label class="field-label">Quick Role Presets</label>
+            <select id="sampleSelect">
+              <option value="data_analyst">📊 Data Analyst</option>
+              <option value="software_dev">💻 Software Developer</option>
+              <option value="marketing_manager">📣 Marketing Manager</option>
+              <option value="hr_specialist">👥 HR Specialist</option>
+              <option value="devops">☁️ Cloud DevOps Engineer</option>
+            </select>
+          </div>
+          <label class="field-label">Paste or type job description</label>
+          <textarea id="jdInput" rows="9" placeholder="Paste the full job description — requirements, responsibilities, preferred skills..."></textarea>
+        </div>
+
+        <!-- Multi-Resume Upload Card -->
+        <div class="card">
+          <div class="card-title" style="justify-content: space-between;">
+            <span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              Candidate Resumes
+            </span>
+            <span class="count-badge" id="resumeCount">0 loaded</span>
+          </div>
+
+          <!-- Upload zone: multiple files -->
+          <div class="upload-zone-multi" id="uploadZone">
+            <input type="file" id="resumeFiles" accept=".pdf,.txt" multiple>
+            <div class="uz-icon">📂</div>
+            <h4>Drop multiple resumes here or click to browse</h4>
+            <p>PDF, TXT supported — all parsed instantly in your browser</p>
+            <div class="uz-hint">✅ Select multiple files at once — Ctrl+Click or Shift+Click</div>
+          </div>
+
+          <!-- Loaded resumes queue -->
+          <div class="resume-queue" id="resumeQueue"></div>
+
+          <!-- Paste mode toggle -->
+          <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border);">
+            <button id="btnAddPasteResume" class="btn-secondary" style="width:100%; justify-content:center; font-size:0.85rem;">
+              ✍️ + Add Resume by Pasting Text
+            </button>
+          </div>
+
+          <!-- Paste text area (hidden by default) -->
+          <div id="pasteArea" style="display:none; margin-top:0.75rem;">
+            <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem;">
+              <input type="text" id="pasteNameInput" placeholder="Candidate name (e.g. Jane Smith)" style="flex:1; resize:none;">
+              <button id="btnConfirmPaste" class="btn-sm" style="white-space:nowrap;">Add ✓</button>
+              <button id="btnCancelPaste" class="btn-sm">✕</button>
+            </div>
+            <textarea id="pasteResumeInput" rows="5" placeholder="Paste resume text here..."></textarea>
+          </div>
+        </div>
+
+        <!-- Analyze Button -->
+        <button id="btnAnalyze" class="btn-primary" style="font-size:1rem; padding:1rem;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Analyze All Resumes
+        </button>
+      </div>
+
+      <!-- ═══ RIGHT PANEL: Results ═══ -->
+      <div id="resultsPanel">
+        <div class="placeholder-state" style="padding:5rem 2rem;">
+          <div class="ph-icon">📊</div>
+          <p>Upload resumes and click <strong>Analyze All Resumes</strong> to see ranked scorecards here.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="nav.js"></script>
+  <script src="ats_engine.js"></script>
+  <script src="analyzer.js"></script>
+</body>
+</html>

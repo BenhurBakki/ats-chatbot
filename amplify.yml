@@ -3,7 +3,7 @@ frontend:
   phases:
     build:
       commands:
-        - echo "Preparing ATS Optimization & Multi-Channel Portal for AWS Amplify..."
+        - echo "Building ATS Copilot - Multi-Page Portal with PDF Upload Support..."
   artifacts:
     baseDirectory: static
     files:

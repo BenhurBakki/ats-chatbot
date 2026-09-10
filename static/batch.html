@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Batch Queue Processor – ATS Copilot</title>
+  <meta name="description" content="Process multiple Job Descriptions and Resumes simultaneously in priority order with ranked ATS scores.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    .batch-row-card { background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 0.75rem; }
+    .batch-row-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+    .batch-num { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #a855f7); display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 800; color: #fff; flex-shrink: 0; }
+    .batch-row-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    @media (max-width: 700px) { .batch-row-inputs { grid-template-columns: 1fr; } }
+    .btn-remove { background: rgba(244,63,94,0.15); border: 1px solid rgba(244,63,94,0.3); color: #fb7185; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-left: auto; font-size: 0.9rem; }
+    .batch-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem; }
+    .results-table { width: 100%; border-collapse: collapse; }
+    .results-table th { background: rgba(255,255,255,0.04); padding: 0.7rem 1rem; text-align: left; font-size: 0.78rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+    .results-table td { padding: 0.85rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.88rem; vertical-align: middle; }
+    .results-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .rank-badge { width: 24px; height: 24px; border-radius: 6px; background: rgba(99,102,241,0.15); color: #818cf8; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }
+    .table-overflow { overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <div class="bg-orbs"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a href="index.html" class="nav-logo"><div class="logo-box">⚡</div><span>ATS Copilot</span></a>
+      <div class="nav-links">
+        <a href="analyzer.html">Analyzer</a>
+        <a href="batch.html">Batch</a>
+        <a href="simulator.html">Simulator</a>
+        <a href="courses.html">Courses</a>
+      </div>
+      <button id="btnLoadSample" class="btn-sm">📋 Load 4 Samples</button>
+    </div>
+  </nav>
+
+  <div class="page-wrap">
+    <div class="page-header">
+      <h1>📑 Batch Queue Processor</h1>
+      <p>Process multiple Job Descriptions and Resumes simultaneously — prioritized in the order received and ranked by ATS score.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        Job Description & Resume Pairs
+      </div>
+
+      <div id="batchRows"></div>
+
+      <div class="batch-actions">
+        <button id="btnAddRow" class="btn-secondary">+ Add Another Pair</button>
+        <button id="btnRunBatch" class="btn-primary" style="width:auto; padding: 0.75rem 2rem;">
+          ⚡ Process Batch Queue
+        </button>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="batchResults" style="display:none; margin-top: 1.5rem;">
+      <div class="card">
+        <div class="card-title">🏆 Results Matrix — Priority Ordered</div>
+        <div class="table-overflow">
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Target Role</th>
+                <th>Candidate</th>
+                <th>ATS Score</th>
+                <th>Skills Match</th>
+                <th>Experience Match</th>
+                <th>Top Recommended Course</th>
+              </tr>
+            </thead>
+            <tbody id="batchTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="nav.js"></script>
+  <script src="ats_engine.js"></script>
+  <script>
+  (function () {
+    let rowCount = 0;
+
+    function addRow(jd = '', resume = '') {
+      rowCount++;
+      const n = rowCount;
+      const container = document.getElementById('batchRows');
+      const div = document.createElement('div');
+      div.className = 'batch-row-card';
+      div.id = `brow-${n}`;
+      div.innerHTML = `
+        <div class="batch-row-header">
+          <div class="batch-num">${n}</div>
+          <span style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">Pair #${n}</span>
+          <button class="btn-remove" onclick="this.closest('.batch-row-card').remove(); reindex()" title="Remove">✕</button>
+        </div>
+        <div class="batch-row-inputs">
+          <div>
+            <label class="field-label">Job Description</label>
+            <textarea class="brow-jd" rows="4" placeholder="Paste JD or role requirements...">${jd}</textarea>
+          </div>
+          <div>
+            <label class="field-label">Resume Text</label>
+            <textarea class="brow-res" rows="4" placeholder="Paste candidate resume...">${resume}</textarea>
+          </div>
+        </div>
+      `;
+      container.appendChild(div);
+    }
+
+    window.reindex = function () {
+      document.querySelectorAll('.batch-row-card').forEach((el, i) => {
+        el.querySelector('.batch-num').textContent = i + 1;
+        el.querySelector('span').textContent = `Pair #${i + 1}`;
+      });
+    };
+
+    document.getElementById('btnAddRow').addEventListener('click', () => addRow());
+    document.getElementById('btnLoadSample').addEventListener('click', () => {
+      document.getElementById('batchRows').innerHTML = '';
+      rowCount = 0;
+      addRow(PRESETS.data_analyst.jd, PRESETS.data_analyst.resume);
+      addRow(PRESETS.software_dev.jd, PRESETS.software_dev.resume);
+      addRow(PRESETS.marketing_manager.jd, PRESETS.marketing_manager.resume);
+      addRow(PRESETS.hr_specialist.jd, PRESETS.hr_specialist.resume);
+    });
+
+    document.getElementById('btnRunBatch').addEventListener('click', () => {
+      const rows = document.querySelectorAll('.batch-row-card');
+      const items = [];
+      rows.forEach((row, i) => {
+        const jd = row.querySelector('.brow-jd').value.trim();
+        const res = row.querySelector('.brow-res').value.trim();
+        if (jd && res) items.push({ jd, res, order: i + 1 });
+      });
+
+      if (items.length === 0) { showToast('⚠️ Please fill in at least one JD + Resume pair.'); return; }
+
+      const results = items.map(item => ({ ...analyzeATS(item.jd, item.res), order: item.order }));
+      results.sort((a, b) => b.atsScore - a.atsScore);
+
+      const tbody = document.getElementById('batchTableBody');
+      tbody.innerHTML = '';
+      results.forEach((r, rank) => {
+        const scoreClass = r.atsScore >= 80 ? 'chip-green' : r.atsScore >= 65 ? 'chip-amber' : 'chip-red';
+        const topCourse = r.courses[0] ? `<a href="${r.courses[0].url}" target="_blank" style="color:#67e8f9; font-size:0.82rem;">${r.courses[0].title}</a>` : '—';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><div class="rank-badge">${rank + 1}</div></td>
+          <td><strong>${r.role}</strong></td>
+          <td>${r.candidate}</td>
+          <td><span class="chip ${scoreClass}">${r.atsScore}%</span></td>
+          <td>${r.skillsPct}%</td>
+          <td>${r.expPct}%</td>
+          <td>${topCourse}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('batchResults').style.display = 'block';
+      document.getElementById('batchResults').scrollIntoView({ behavior: 'smooth' });
+      showToast(`✅ ${results.length} resumes analyzed and ranked!`);
+    });
+
+    // Initial row
+    addRow();
+  })();
+  </script>
+</body>
+</html>
