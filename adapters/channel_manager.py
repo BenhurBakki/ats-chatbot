@@ -19,6 +19,7 @@ class UserSession:
         self.candidate_hint = ""
         self.last_analysis: Optional[Dict[str, Any]] = None
         self.evaluated_candidates: list[Dict[str, Any]] = []
+        self.pending_resumes: list[Dict[str, Any]] = []
         self.batch_jds: list[str] = []
         self.last_activity = time.time()
 
@@ -30,6 +31,7 @@ class UserSession:
         self.candidate_hint = ""
         self.last_analysis = None
         self.evaluated_candidates = []
+        self.pending_resumes = []
         self.batch_jds = []
         self.last_activity = time.time()
 
@@ -291,8 +293,37 @@ class ChannelManager:
             session.current_jd = text_clean
             session.role_hint = self.analyzer._extract_role_title(text_clean, filename=filename)
 
-            # If user sent resume first in this initial session
-            if session.current_resume and not session.evaluated_candidates:
+            # If user sent resumes first before this JD (single or batch)
+            if getattr(session, "pending_resumes", None) and len(session.pending_resumes) > 0:
+                pending = list(session.pending_resumes)
+                session.pending_resumes = []
+                session.evaluated_candidates = []
+                batch_results = []
+                for p in pending:
+                    c_name = self.analyzer._extract_candidate_name(p["text"], filename=p.get("filename", ""))
+                    if c_name == "Candidate" and p.get("candidate_fallback"):
+                        c_name = p["candidate_fallback"]
+                    analysis = self.analyzer.analyze(
+                        jd_text=session.current_jd,
+                        resume_text=p["text"],
+                        role_hint=session.role_hint,
+                        candidate_hint=c_name,
+                        filename=p.get("filename", "")
+                    )
+                    session.evaluated_candidates.append(analysis)
+                    batch_results.append(analysis)
+                session.last_analysis = batch_results[-1]
+                session.state = "ANALYZED"
+                return {
+                    "reply_text": self._format_batch_chat_response(session.role_hint, batch_results, session.evaluated_candidates),
+                    "structured_batch": {
+                        "target_role": session.role_hint,
+                        "results": batch_results,
+                        "leaderboard": session.evaluated_candidates
+                    },
+                    "state": session.state
+                }
+            elif session.current_resume and not session.evaluated_candidates:
                 analysis = self.analyzer.analyze(
                     jd_text=session.current_jd,
                     resume_text=session.current_resume,
@@ -321,7 +352,7 @@ class ChannelManager:
                         f"━━━━━━━━━━━━━━━━━━━━\n"
                         f"💼 <b>Target Role:</b> {session.role_hint}\n\n"
                         f"👉 <b>Step 2:</b> Now upload or send <b>Candidate Resumes</b> (.pdf / .docx or text) to evaluate against this JD!\n\n"
-                        f"💡 <i>Tip: You can upload multiple resumes one after another for this same role!</i>"
+                        f"💡 <i>Tip: You can select and send multiple resumes at once, or upload a .zip archive!</i>"
                     ),
                     "state": session.state
                 }
@@ -354,10 +385,18 @@ class ChannelManager:
                 }
             else:
                 session.state = "WAITING_FOR_JD"
+                if not hasattr(session, "pending_resumes"):
+                    session.pending_resumes = []
+                session.pending_resumes.append({
+                    "filename": filename,
+                    "text": text_clean,
+                    "candidate_fallback": candidate_fallback
+                })
                 fn_str = f" (<code>{filename}</code>)" if filename else ""
+                count_str = f" ({len(session.pending_resumes)} pending)" if len(session.pending_resumes) > 1 else ""
                 return {
                     "reply_text": (
-                        f"📄 <b>Resume Received & Recognized!</b>{fn_str}\n"
+                        f"📄 <b>Resume Received & Recognized!</b>{fn_str}{count_str}\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n"
                         f"👤 <b>Candidate:</b> {session.candidate_hint}\n\n"
                         f"👉 <b>Step 2:</b> Now upload or send the <b>Job Description (JD)</b> (.pdf / .docx or text) to evaluate ATS match!"
@@ -441,6 +480,126 @@ class ChannelManager:
             leaderboard_section = f"\n\n🏆 *Candidates Ranked for {target_role} ({len(candidates)} total):*\n" + "\n".join(lb_lines)
 
         return header_section + think_aloud_section + standard_output + leaderboard_section
+
+    def handle_batch_documents(self, user_id: str, channel: str, documents: list[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Process multiple documents uploaded simultaneously (e.g. multi-file select or unpacked .zip).
+        Each dict in documents: {"filename": str, "text": str, "candidate_fallback": str}
+        """
+        session = self.get_or_create_session(user_id, channel)
+        valid_docs = [
+            d for d in documents
+            if d.get("text") and len(d["text"].strip()) > 15 and not d["text"].startswith("[Error")
+        ]
+
+        if not valid_docs:
+            return {
+                "reply_text": "⚠️ None of the uploaded files contained readable resume or job description text.",
+                "state": session.state
+            }
+
+        # If only 1 document was uploaded in the batch, route to standard single handle_message
+        if len(valid_docs) == 1:
+            d = valid_docs[0]
+            return self.handle_message(
+                user_id=user_id,
+                channel=channel,
+                text=d["text"],
+                attachments=[{"filename": d.get("filename", ""), "candidate_name": d.get("candidate_fallback", "")}]
+            )
+
+        # 1. Separate JDs and Resumes
+        jds = []
+        resumes = []
+        for d in valid_docs:
+            dtype = classify_document_or_text(d["text"], d.get("filename", ""))
+            if dtype == "JD":
+                jds.append(d)
+            else:
+                resumes.append(d)
+
+        # 2. Determine target JD
+        if jds:
+            primary_jd = jds[0]
+            session.current_jd = primary_jd["text"]
+            session.role_hint = self.analyzer._extract_role_title(primary_jd["text"], filename=primary_jd.get("filename", ""))
+            session.evaluated_candidates = []  # Start fresh ranking for this new JD
+
+        elif not session.current_jd:
+            # Resumes received, but no JD yet! Queue them up
+            session.pending_resumes.extend(resumes)
+            session.state = "WAITING_FOR_JD"
+            count = len(session.pending_resumes)
+            return {
+                "reply_text": (
+                    f"📥 <b>Received {count} Candidate Resumes!</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"I have successfully extracted all {count} resumes.\n\n"
+                    f"👉 <b>Next Step:</b> Please upload or send the <b>Job Description (JD)</b> (.pdf / .docx or text) to evaluate all {count} candidates at once!"
+                ),
+                "state": session.state
+            }
+
+        # 3. Evaluate all candidate resumes against session.current_jd
+        all_resumes = resumes + list(getattr(session, "pending_resumes", []))
+        session.pending_resumes = []
+
+        batch_results = []
+        for r in all_resumes:
+            c_name = self.analyzer._extract_candidate_name(r["text"], filename=r.get("filename", ""))
+            if c_name == "Candidate" and r.get("candidate_fallback"):
+                c_name = r["candidate_fallback"]
+
+            analysis = self.analyzer.analyze(
+                jd_text=session.current_jd,
+                resume_text=r["text"],
+                role_hint=session.role_hint,
+                candidate_hint=c_name,
+                filename=r.get("filename", "")
+            )
+            session.evaluated_candidates.append(analysis)
+            batch_results.append(analysis)
+
+        session.last_analysis = batch_results[-1] if batch_results else None
+        session.state = "ANALYZED"
+
+        return {
+            "reply_text": self._format_batch_chat_response(session.role_hint, batch_results, session.evaluated_candidates),
+            "structured_batch": {
+                "target_role": session.role_hint,
+                "results": batch_results,
+                "leaderboard": session.evaluated_candidates
+            },
+            "state": session.state
+        }
+
+    def _format_batch_chat_response(self, role: str, batch_results: list[Dict[str, Any]], leaderboard: list[Dict[str, Any]]) -> str:
+        """Format batch candidate ATS evaluation report for standard text/markdown chat."""
+        sorted_lb = sorted(leaderboard, key=lambda x: x.get("ats_score", 0), reverse=True)
+        total = len(sorted_lb)
+
+        lines = [
+            f"🏆 *Batch ATS Evaluation Report: {role}*",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"📊 Evaluated *{total} candidates* for this role.\n",
+            "🏅 *Ranked Candidate Leaderboard:*"
+        ]
+
+        for rank, c in enumerate(sorted_lb, start=1):
+            name = c.get("candidate_name") or f"Candidate {rank}"
+            score = c.get("ats_score", 0)
+            breakdown = c.get("breakdown", {})
+            sm = breakdown.get("skills_match", score)
+            em = breakdown.get("experience_match", score)
+            badge = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
+            lines.append(f"{rank}. {badge} *{name}*: `{score}%` (Skills: {sm}%, Exp: {em}%)")
+
+        if sorted_lb:
+            top = sorted_lb[0]
+            lines.append(f"\n🌟 *Top Match:* *{top.get('candidate_name')}* ({top.get('ats_score')}% compatibility)")
+
+        lines.append("\n💡 _Send another resume or archive to add candidates, or type *reset* to start over._")
+        return "\n".join(lines)
 
 
 # Global singleton instance

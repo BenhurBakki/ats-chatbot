@@ -238,6 +238,33 @@ class TelegramAdapter:
             except Exception:
                 return file_bytes.decode("latin-1", errors="ignore").strip()
 
+    @classmethod
+    def extract_documents_from_zip(cls, file_bytes: bytes) -> list[Dict[str, Any]]:
+        """Extract all readable candidate resumes or JDs from a zip archive."""
+        import zipfile
+        docs = []
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+                for zinfo in z.infolist():
+                    if zinfo.is_dir():
+                        continue
+                    fname = os.path.basename(zinfo.filename)
+                    if not fname or fname.startswith((".", "__MACOSX")):
+                        continue
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext in [".pdf", ".docx", ".doc", ".docs", ".dotx", ".txt", ".png", ".jpg", ".jpeg"]:
+                        raw = z.read(zinfo)
+                        text = cls.extract_text_from_document(fname, raw)
+                        if text and len(text) > 15 and not text.startswith("[Error"):
+                            docs.append({
+                                "filename": fname,
+                                "text": text,
+                                "candidate_fallback": ""
+                            })
+        except Exception:
+            pass
+        return docs
+
     @staticmethod
     def _render_bar(pct: int, length: int = 10) -> str:
         """Render a clean text-based progress bar."""
@@ -343,6 +370,77 @@ class TelegramAdapter:
         return msg
 
     @classmethod
+    def format_batch_html_response(cls, batch_data: Dict[str, Any]) -> str:
+        """Format batch candidate ATS evaluation report using clean, beautiful Telegram HTML tags."""
+        target_role = html.escape(str(batch_data.get("target_role") or "Target Role"))
+        results = batch_data.get("results", [])
+        leaderboard = batch_data.get("leaderboard", results)
+
+        sorted_lb = sorted(leaderboard, key=lambda x: x.get("ats_score", 0), reverse=True)
+        total = len(sorted_lb)
+
+        lines = [
+            f"🏆 <b>Batch ATS Evaluation Report: {target_role}</b>",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"📊 Evaluated <b>{total} candidate{'s' if total > 1 else ''}</b> against this role.\n",
+            "🏅 <b>Ranked Candidate Leaderboard:</b>"
+        ]
+
+        for rank, c in enumerate(sorted_lb, start=1):
+            name = html.escape(str(c.get("candidate_name") or f"Candidate {rank}"))
+            score = c.get("ats_score", 0)
+            breakdown = c.get("breakdown", {})
+            sm = breakdown.get("skills_match", score)
+            em = breakdown.get("experience_match", score)
+            badge = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
+            status = "STRONG FIT" if score >= 80 else "MODERATE FIT" if score >= 60 else "NEEDS UPSKILLING"
+            bar = cls._render_bar(score, 8)
+
+            matched = c.get("matched_skills", [])
+            missing = c.get("missing_skills", [])
+            matched_tags = ", ".join([f"<code>{html.escape(s)}</code>" for s in matched[:4]]) if matched else "<i>None</i>"
+            missing_tags = ", ".join([f"<code>{html.escape(s)}</code>" for s in missing[:3]]) if missing else "<i>None</i>"
+
+            lines.append(
+                f"{rank}. {badge} <b>{name}</b> — <code>[{bar}] {score}%</code> [{status}]\n"
+                f"   ├ 📊 Skills: <code>{sm}%</code> | Exp: <code>{em}%</code>\n"
+                f"   ├ ✅ Top: {matched_tags}\n"
+                f"   └ ⚠️ Gaps: {missing_tags}"
+            )
+
+        lines.append("\n━━━━━━━━━━━━━━━━━━━━")
+
+        if sorted_lb:
+            top = sorted_lb[0]
+            top_name = html.escape(str(top.get("candidate_name") or "Top Candidate"))
+            top_score = top.get("ats_score", 0)
+            lines.append(
+                f"🌟 <b>Top Recommendation:</b>\n"
+                f"<b>{top_name}</b> ranks #1 with <b>{top_score}% ATS match</b> for <i>{target_role}</i>."
+            )
+
+        # Common Recommended Courses
+        all_missing = set()
+        for c in sorted_lb:
+            for s in c.get("missing_skills", []):
+                all_missing.add(s)
+
+        from core.ats_analyzer import get_recommended_courses
+        common_courses = get_recommended_courses(list(all_missing), target_role)
+        if common_courses:
+            lines.append("\n🎓 <b>Recommended Upskilling Courses for Key Gaps:</b>")
+            for crs in common_courses[:4]:
+                c_title = html.escape(crs.get("title", "Course"))
+                c_prov = html.escape(crs.get("provider", "Online"))
+                c_url = crs.get("url", "https://coursera.org")
+                lines.append(f"• <a href=\"{c_url}\"><b>{c_title}</b></a> (<i>{c_prov}</i>)")
+
+        lines.append("\n━━━━━━━━━━━━━━━━━━━━")
+        lines.append("💡 <i>Send more resumes anytime to add to this ranking, or send <b>reset</b> to start fresh.</i>")
+
+        return "\n".join(lines)
+
+    @classmethod
     def handle_update(cls, update: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process incoming Telegram update (Message, Document, or Command).
@@ -393,6 +491,32 @@ class TelegramAdapter:
                 )
                 return {"ok": True, "status": "file_read_error"}
 
+            # If uploaded document is a .zip archive, extract all contained resumes
+            if filename.lower().endswith(".zip"):
+                zip_docs = cls.extract_documents_from_zip(file_bytes)
+                if not zip_docs:
+                    cls.send_message(
+                        chat_id,
+                        f"⚠️ <i>No readable resume or JD documents (.pdf, .docx, .txt) were found inside <b>{html.escape(filename)}</b>.</i>"
+                    )
+                    return {"ok": True, "status": "empty_zip"}
+
+                cls.send_chat_action(chat_id, "typing")
+                response = channel_manager.handle_batch_documents(
+                    user_id=session_user_id,
+                    channel="telegram",
+                    documents=zip_docs
+                )
+                if response.get("structured_batch"):
+                    reply_html = cls.format_batch_html_response(response["structured_batch"])
+                elif response.get("structured_data"):
+                    reply_html = cls.format_html_response(response["structured_data"])
+                else:
+                    reply_html = response.get("reply_text", "")
+
+                cls.send_message(chat_id, reply_html)
+                return {"ok": True, "status": "zip_processed"}
+
             # Extract text
             extracted_text = cls.extract_text_from_document(filename, file_bytes)
             if not extracted_text or len(extracted_text) < 15 or extracted_text.startswith("[Error"):
@@ -412,8 +536,10 @@ class TelegramAdapter:
                 attachments=[{"filename": filename, "candidate_name": tg_full_name}]
             )
 
-            # If analysis was performed, format beautifully
-            if response.get("structured_data"):
+            # If analysis was performed, format beautifully (single or batch)
+            if response.get("structured_batch"):
+                reply_html = cls.format_batch_html_response(response["structured_batch"])
+            elif response.get("structured_data"):
                 reply_html = cls.format_html_response(response["structured_data"])
             else:
                 reply_html = response.get("reply_text", "")
@@ -531,6 +657,82 @@ class TelegramAdapter:
 
         cls.send_message(chat_id, reply_text)
         return {"ok": True, "status": "message_handled"}
+
+    @classmethod
+    def handle_batch_update(cls, chat_id: int, user_info: Dict[str, Any], documents_info: list) -> Dict[str, Any]:
+        """
+        Process multiple document files uploaded simultaneously (e.g. multi-selection or album).
+        documents_info: [{"file_id": str, "filename": str}, ...]
+        """
+        first_name = user_info.get("first_name", "")
+        last_name = user_info.get("last_name", "")
+        tg_full_name = f"{first_name} {last_name}".strip() or "Candidate"
+        session_user_id = f"tg_{chat_id}"
+
+        cls.send_chat_action(chat_id, "upload_document")
+
+        valid_docs = []
+        for doc in documents_info:
+            file_id = doc.get("file_id")
+            filename = doc.get("filename", "Resume.pdf")
+            if not file_id:
+                continue
+            file_path = cls.get_file_info(file_id)
+            if not file_path:
+                continue
+            file_bytes = cls.download_file_bytes(file_path)
+            if not file_bytes:
+                continue
+
+            if filename.lower().endswith(".zip"):
+                z_docs = cls.extract_documents_from_zip(file_bytes)
+                valid_docs.extend(z_docs)
+            else:
+                extracted = cls.extract_text_from_document(filename, file_bytes)
+                if extracted and len(extracted) > 15 and not extracted.startswith("[Error"):
+                    valid_docs.append({
+                        "filename": filename,
+                        "text": extracted,
+                        "candidate_fallback": tg_full_name
+                    })
+
+        if not valid_docs:
+            cls.send_message(
+                chat_id,
+                "⚠️ <i>Unable to parse readable text from the uploaded documents. Please ensure they are valid .docx or .pdf files.</i>"
+            )
+            return {"ok": True, "status": "empty_batch"}
+
+        cls.send_chat_action(chat_id, "typing")
+
+        if len(valid_docs) == 1:
+            response = channel_manager.handle_message(
+                user_id=session_user_id,
+                channel="telegram",
+                text=valid_docs[0]["text"],
+                attachments=[{"filename": valid_docs[0]["filename"], "candidate_name": tg_full_name}]
+            )
+            if response.get("structured_batch"):
+                reply_html = cls.format_batch_html_response(response["structured_batch"])
+            elif response.get("structured_data"):
+                reply_html = cls.format_html_response(response["structured_data"])
+            else:
+                reply_html = response.get("reply_text", "")
+        else:
+            response = channel_manager.handle_batch_documents(
+                user_id=session_user_id,
+                channel="telegram",
+                documents=valid_docs
+            )
+            if response.get("structured_batch"):
+                reply_html = cls.format_batch_html_response(response["structured_batch"])
+            elif response.get("structured_data"):
+                reply_html = cls.format_html_response(response["structured_data"])
+            else:
+                reply_html = response.get("reply_text", "")
+
+        cls.send_message(chat_id, reply_html)
+        return {"ok": True, "status": "batch_processed"}
 
     @classmethod
     def set_webhook(cls, webhook_url: str) -> Dict[str, Any]:
