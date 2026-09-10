@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  ats-bot:
+    build: .
+    container_name: ats-multi-channel-chatbot
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - WHATSAPP_TOKEN=${WHATSAPP_TOKEN:-}
+      - WHATSAPP_PHONE_ID=${WHATSAPP_PHONE_ID:-}
+      - WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN:-ats_bot_verify_token_secret}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET:-}
+      - INSTAGRAM_PAGE_ACCESS_TOKEN=${INSTAGRAM_PAGE_ACCESS_TOKEN:-}
+      - INSTAGRAM_VERIFY_TOKEN=${INSTAGRAM_VERIFY_TOKEN:-ats_bot_verify_token_secret}
+    restart: unless-stopped

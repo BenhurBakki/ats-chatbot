@@ -1,0 +1,38 @@
+{
+  "ServiceName": "ats-multi-channel-chatbot",
+  "SourceConfiguration": {
+    "ImageRepository": {
+      "ImageIdentifier": "<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/ats-multi-channel-chatbot:latest",
+      "ImageConfiguration": {
+        "Port": "8000",
+        "RuntimeEnvironmentVariables": {
+          "PORT": "8000",
+          "WHATSAPP_VERIFY_TOKEN": "ats_bot_verify_token_secret",
+          "INSTAGRAM_VERIFY_TOKEN": "ats_bot_verify_token_secret",
+          "WHATSAPP_TOKEN": "",
+          "WHATSAPP_PHONE_ID": "",
+          "SLACK_BOT_TOKEN": "",
+          "SLACK_SIGNING_SECRET": "",
+          "INSTAGRAM_PAGE_ACCESS_TOKEN": ""
+        }
+      },
+      "ImageRepositoryType": "ECR"
+    },
+    "AutoDeploymentsEnabled": true,
+    "AuthenticationConfiguration": {
+      "AccessRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/AppRunnerECRAccessRole"
+    }
+  },
+  "InstanceConfiguration": {
+    "Cpu": "1 vCPU",
+    "Memory": "2 GB"
+  },
+  "HealthCheckConfiguration": {
+    "Protocol": "HTTP",
+    "Path": "/health",
+    "Interval": 10,
+    "Timeout": 5,
+    "HealthyThreshold": 1,
+    "UnhealthyThreshold": 5
+  }
+}

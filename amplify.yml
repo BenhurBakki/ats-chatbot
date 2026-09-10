@@ -1,0 +1,12 @@
+version: 1
+frontend:
+  phases:
+    build:
+      commands:
+        - echo "Preparing ATS Optimization & Multi-Channel Portal for AWS Amplify..."
+  artifacts:
+    baseDirectory: static
+    files:
+      - '**/*'
+  cache:
+    paths: []
