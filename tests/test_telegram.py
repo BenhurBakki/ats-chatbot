@@ -18,19 +18,20 @@ def test_telegram_get_me():
 
 
 def test_telegram_start_command():
-    """Verify /start returns greeting and instructions."""
-    update = {
-        "update_id": 100,
-        "message": {
-            "message_id": 1,
-            "chat": {"id": 11223344, "type": "private"},
-            "from": {"id": 11223344, "first_name": "TestUser", "username": "testuser"},
-            "text": "/start"
+    """Verify helo / start returns greeting and instructions."""
+    for cmd in ["helo", "hello", "/start"]:
+        update = {
+            "update_id": 100,
+            "message": {
+                "message_id": 1,
+                "chat": {"id": 11223344, "type": "private"},
+                "from": {"id": 11223344, "first_name": "TestUser", "username": "testuser"},
+                "text": cmd
+            }
         }
-    }
-    res = TelegramAdapter.handle_update(update)
-    assert res.get("ok") is True
-    assert res.get("status") == "start_sent"
+        res = TelegramAdapter.handle_update(update)
+        assert res.get("ok") is True
+        assert res.get("status") == "helo_sent"
 
 
 def test_telegram_two_step_analysis():

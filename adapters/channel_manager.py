@@ -56,21 +56,26 @@ class ChannelManager:
         text_clean = text.strip()
         text_lower = text_clean.lower()
 
-        # Handle Commands
-        if text_lower in ["/reset", "reset", "start over", "clear", "hello", "hi", "hey"] and session.state == "IDLE":
+        # Handle Commands & Greetings
+        if text_lower in ["helo", "hello", "hi", "hey", "/helo", "/hello", "/start", "start"]:
             session.reset()
             return {
                 "reply_text": (
                     "👋 *Welcome to ATS Optimization & Tracking Assistant!*\n\n"
                     "I evaluate your resume against Job Descriptions, calculate precise ATS match scores, "
                     "think aloud through skills & experience alignment, and provide targeted upskilling course links.\n\n"
-                    "📄 *Step 1:* Please send or paste the *Job Description (JD)* (e.g. `JD for Data Analyst...` or raw JD text)."
+                    "📄 *Step 1:* Please send or paste the *Job Description (JD)* (e.g. `JD for Data Analyst...` or raw JD text).\n\n"
+                    "💡 *Basic Commands:*\n"
+                    "• *helo* - Show this welcome guide\n"
+                    "• *example* - Load sample Data Analyst JD\n"
+                    "• *courses* - Recommended upskilling courses\n"
+                    "• *reset* - Clear session & start fresh"
                 ),
                 "state": session.state,
-                "quick_replies": ["Try Example: Data Analyst", "Try Example: Software Dev", "Batch Mode"]
+                "quick_replies": ["Try Example: Data Analyst", "Try Example: Software Dev", "Courses"]
             }
 
-        if text_lower in ["/reset", "reset", "start over", "clear"]:
+        if text_lower in ["/reset", "reset", "start over", "clear", "/clear"]:
             session.reset()
             return {
                 "reply_text": "🔄 Session reset. Please send or paste a *Job Description (JD)* to begin a new ATS evaluation.",

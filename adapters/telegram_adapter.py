@@ -199,7 +199,7 @@ class TelegramAdapter:
             f"🎓 <b>Suggested Courses:</b>\n{courses_escaped}\n\n"
             f"📈 <b>Overall Analytics:</b>\n<i>{overall_escaped}</i>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 <i>Type /courses for direct links, or send a new Job Description to analyze another candidate!</i>"
+            f"💡 <i>Type <b>courses</b> for direct links, <b>reset</b> to clear, or <b>helo</b> to start over!</i>"
         )
         return msg
 
@@ -284,41 +284,45 @@ class TelegramAdapter:
 
         text_lower = text.lower()
 
-        # Command: /start
-        if text_lower in ["/start", "start"]:
+        # Command: helo, hello, /start, start, hi, hey
+        if text_lower in ["helo", "hello", "hi", "hey", "/helo", "/hello", "/start", "start", "/hi"]:
             session = channel_manager.get_or_create_session(session_user_id, "telegram")
             session.reset()
             welcome = (
                 f"👋 <b>Welcome {html.escape(first_name)} to BenBot (@BennhurBot)!</b>\n\n"
                 f"I am your AI-powered <b>ATS Resume Optimizer & Skill Matcher</b>.\n\n"
                 f"<b>How to use:</b>\n"
-                f"1️⃣ Send or paste your <b>Job Description (JD)</b> (e.g., <i>'JD for Senior Data Analyst: 3+ years Python, SQL...'</i>)\n"
+                f"1️⃣ Send or paste your <b>Job Description (JD)</b> (e.g. <i>'JD for Senior Data Analyst: 3+ years Python, SQL...'</i>)\n"
                 f"2️⃣ Send your <b>Resume text</b> OR upload your <b>Resume PDF / DOCX file</b> directly into this chat!\n\n"
                 f"I will instantly evaluate ATS match %, highlight gaps, think aloud on improvement strategies, and give direct links to recommended upskilling courses.\n\n"
-                f"<b>Quick Commands:</b>\n"
-                f"• /example - Load a sample Data Analyst JD to test immediately\n"
-                f"• /courses - Browse top upskilling courses\n"
-                f"• /reset - Clear session and start over\n"
-                f"• /help - Instructions"
+                f"<b>Basic Commands:</b>\n"
+                f"• <b>helo</b> - Show this welcome menu anytime\n"
+                f"• <b>example</b> - Load sample Data Analyst JD to test immediately\n"
+                f"• <b>courses</b> - Browse top upskilling courses\n"
+                f"• <b>reset</b> - Clear session and start over\n"
+                f"• <b>help</b> - Instructions & tips"
             )
             keyboard = {
-                "inline_keyboard": [
-                    [{"text": "📋 Try Example JD", "callback_data": "cmd_example"}],
-                    [{"text": "🎓 Upskilling Courses", "callback_data": "cmd_courses"}]
-                ]
+                "keyboard": [
+                    [{"text": "helo"}, {"text": "example"}],
+                    [{"text": "courses"}, {"text": "reset"}]
+                ],
+                "resize_keyboard": True,
+                "one_time_keyboard": False
             }
             cls.send_message(chat_id, welcome, reply_markup=keyboard)
-            return {"ok": True, "status": "start_sent"}
+            return {"ok": True, "status": "helo_sent"}
 
-        # Command: /help
-        if text_lower in ["/help", "help"]:
+        # Command: /help or help
+        if text_lower in ["/help", "help", "info", "/info"]:
             help_text = (
-                "📖 <b>BenBot (@BennhurBot) Help & Commands</b>\n\n"
-                "• <b>Send Job Description:</b> Just paste the text of the job description.\n"
-                "• <b>Send Resume:</b> Paste the candidate's resume text OR upload a <code>.pdf</code> / <code>.docx</code> document.\n"
-                "• <b>/example:</b> Load an instant sample JD to test.\n"
-                "• <b>/courses:</b> View direct clickable links to recommended upskilling courses.\n"
-                "• <b>/reset:</b> Reset your current session to test a new role.\n\n"
+                "📖 <b>BenBot (@BennhurBot) Help & Basic Commands</b>\n\n"
+                "• <b>helo:</b> Show welcome message & quick buttons\n"
+                "• <b>example:</b> Load an instant sample JD to test\n"
+                "• <b>courses:</b> View direct clickable links to recommended upskilling courses\n"
+                "• <b>reset:</b> Reset session to evaluate another job description\n"
+                "• <b>Send Job Description:</b> Just paste the text of the JD\n"
+                "• <b>Send Resume:</b> Upload a <code>.pdf</code> / <code>.docx</code> document or paste resume text\n\n"
                 "<i>Tip: You can also send both at once: 'JD for Data Analyst: ... Resume of Jane: ...'</i>"
             )
             cls.send_message(chat_id, help_text)
