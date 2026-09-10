@@ -288,12 +288,26 @@ class ChannelManager:
         # Classify the document or text individually
         doc_type = classify_document_or_text(text_clean, filename)
 
+        # ── STRICT STATE GUARD: JD already active → reject another JD ──────────
+        if doc_type == "JD" and session.current_jd and session.state in ["WAITING_FOR_RESUME", "ANALYZED"]:
+            fn_str = f" (<code>{filename}</code>)" if filename else ""
+            return {
+                "reply_text": (
+                    f"⚠️ <b>A Job Description is already active!</b>{fn_str}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"💼 <b>Active Role:</b> <i>{session.role_hint}</i>\n\n"
+                    f"Please upload <b>Candidate Resumes</b> (.pdf / .docx) to evaluate against this JD.\n\n"
+                    f"💡 <i>Type <b>reset</b> first if you want to start with a new Job Description.</i>"
+                ),
+                "state": session.state
+            }
+
         # 1. Input is a JOB DESCRIPTION
         if doc_type == "JD" or (doc_type == "UNKNOWN" and session.state == "WAITING_FOR_JD"):
             session.current_jd = text_clean
             session.role_hint = self.analyzer._extract_role_title(text_clean, filename=filename)
 
-            # If user sent resumes first before this JD (single or batch)
+            # If resumes were already queued before this JD, evaluate them all now
             if getattr(session, "pending_resumes", None) and len(session.pending_resumes) > 0:
                 pending = list(session.pending_resumes)
                 session.pending_resumes = []
@@ -341,7 +355,7 @@ class ChannelManager:
                     "state": session.state
                 }
             else:
-                # Setting a new JD clears previous candidate leaderboard
+                # Fresh JD — wait for resumes only
                 session.current_resume = ""
                 session.evaluated_candidates = []
                 session.state = "WAITING_FOR_RESUME"
@@ -351,21 +365,22 @@ class ChannelManager:
                         f"📋 <b>Job Description Received & Recognized!</b>{fn_str}\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n"
                         f"💼 <b>Target Role:</b> {session.role_hint}\n\n"
-                        f"👉 <b>Step 2:</b> Now upload or send <b>Candidate Resumes</b> (.pdf / .docx or text) to evaluate against this JD!\n\n"
-                        f"💡 <i>Tip: You can select and send multiple resumes at once, or upload a .zip archive!</i>"
+                        f"👉 <b>Step 2:</b> Now upload <b>Candidate Resumes</b> (.pdf / .docx) to evaluate against this JD!\n\n"
+                        f"💡 <i>You can select and send multiple resumes at once, or upload a .zip archive!</i>"
                     ),
                     "state": session.state
                 }
 
-        # 2. Input is a RESUME (or any subsequent document for active JD)
-        elif doc_type == "RESUME" or (session.current_jd and session.state in ["WAITING_FOR_RESUME", "ANALYZED"]):
+        # 2. Input is a RESUME (only if classified as RESUME, or uploaded as a file with a JD active)
+        is_file_upload = bool(filename)
+        if doc_type == "RESUME" or (is_file_upload and session.current_jd and session.state in ["WAITING_FOR_RESUME", "ANALYZED"]):
             session.current_resume = text_clean
             cand_name = self.analyzer._extract_candidate_name(text_clean, filename=filename)
             if cand_name == "Candidate" and candidate_fallback:
                 cand_name = candidate_fallback
             session.candidate_hint = cand_name
 
-            # Evaluate against current active JD
+            # Evaluate against the active JD immediately
             if session.current_jd:
                 analysis = self.analyzer.analyze(
                     jd_text=session.current_jd,
@@ -384,6 +399,7 @@ class ChannelManager:
                     "state": session.state
                 }
             else:
+                # No JD yet — queue the resume and ask for JD
                 session.state = "WAITING_FOR_JD"
                 if not hasattr(session, "pending_resumes"):
                     session.pending_resumes = []
@@ -393,7 +409,7 @@ class ChannelManager:
                     "candidate_fallback": candidate_fallback
                 })
                 fn_str = f" (<code>{filename}</code>)" if filename else ""
-                count_str = f" ({len(session.pending_resumes)} pending)" if len(session.pending_resumes) > 1 else ""
+                count_str = f" ({len(session.pending_resumes)} queued)" if len(session.pending_resumes) > 1 else ""
                 return {
                     "reply_text": (
                         f"📄 <b>Resume Received & Recognized!</b>{fn_str}{count_str}\n"
@@ -404,12 +420,12 @@ class ChannelManager:
                     "state": session.state
                 }
 
-        # 3. Handle post-analysis shortcuts if in ANALYZED state and not sending new document/text
+        # 3. Post-analysis shortcuts (very short keyword commands only)
         if session.state == "ANALYZED" and len(text_clean) < 30 and not filename:
             if "another" in text_lower or "new" in text_lower or "next" in text_lower:
                 session.reset()
                 return {
-                    "reply_text": "📄 Please send the next <b>Job Description</b> or upload a <b>Resume</b> to begin another analysis.",
+                    "reply_text": "🔄 <b>Session cleared!</b> Please upload a new <b>Job Description</b> to start a fresh evaluation.",
                     "state": "IDLE"
                 }
             elif "course" in text_lower or "link" in text_lower:
@@ -420,17 +436,41 @@ class ChannelManager:
                     "state": session.state
                 }
 
-        # 4. Default fallback: treat as Job Description
-        session.current_jd = text_clean
-        session.role_hint = self.analyzer._extract_role_title(text_clean, filename=filename)
-        session.state = "WAITING_FOR_RESUME"
-        return {
-            "reply_text": (
-                f"✅ <b>Job Description Received</b> (Detected Role: <i>{session.role_hint}</i>)\n\n"
-                f"📄 <b>Step 2:</b> Please upload the <b>Candidate's Resume</b> (.pdf / .docx) or paste the resume text to analyze against this JD."
-            ),
-            "state": session.state
-        }
+        # 4. Catch-all: invalid/unrecognized input — state-aware error message
+        if session.state in ["WAITING_FOR_RESUME", "ANALYZED"]:
+            return {
+                "reply_text": (
+                    f"❌ <b>Invalid input.</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"A Job Description for <b>{session.role_hint}</b> is already active.\n\n"
+                    f"➡️ Please upload a <b>Resume</b> (.pdf / .docx / image) to evaluate candidates.\n"
+                    f"💡 <i>Type <b>reset</b> to start over with a new Job Description.</i>"
+                ),
+                "state": session.state
+            }
+        elif session.state == "WAITING_FOR_JD":
+            count = len(getattr(session, "pending_resumes", []))
+            return {
+                "reply_text": (
+                    f"❌ <b>Invalid input.</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{f'I have <b>{count} resume(s)</b> queued. ' if count else ''}"
+                    f"Please upload or paste the <b>Job Description (JD)</b> to evaluate them.\n"
+                    f"💡 <i>Type <b>reset</b> to start fresh.</i>"
+                ),
+                "state": session.state
+            }
+        else:
+            return {
+                "reply_text": (
+                    "❌ <b>Invalid message.</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "I only process <b>Job Descriptions</b> and <b>Resumes</b>.\n\n"
+                    "👉 To start: upload or paste a <b>Job Description (JD)</b> (.pdf / .docx or text).\n"
+                    "💡 <i>Type <b>helo</b> to see all commands.</i>"
+                ),
+                "state": session.state
+            }
 
     def _format_chat_response(self, analysis: Dict[str, Any]) -> str:
         """Format the analysis into the exact specified format with clean chat readability."""
