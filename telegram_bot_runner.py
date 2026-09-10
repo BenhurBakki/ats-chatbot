@@ -10,6 +10,14 @@ import time
 import json
 import logging
 
+# Ensure UTF-8 output on Windows consoles
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -40,10 +48,10 @@ def run_polling():
     first_name = result.get("first_name", "Bot")
     logger.info(f"Authenticated as: {first_name} (@{username})")
     print("\n" + "=" * 60)
-    print(f"🤖 ATS TELEGRAM BOT IS ONLINE: @{username}")
-    print(f"👉 Direct Link: https://t.me/{username}")
-    print("✨ Features: Text Chat, PDF/DOCX Resume Uploads, /courses, /example")
-    print("=" * 60 + "\n")
+    print(f"[*] ATS TELEGRAM BOT IS ONLINE: @{username}")
+    print(f"[*] Direct Link: https://t.me/{username}")
+    print("[*] Features: Text Chat, PDF/DOCX Resume Uploads, /courses, /example")
+    print("=" * 60 + "\n", flush=True)
 
     # Clear any old webhook so long polling receives updates
     del_res = TelegramAdapter.delete_webhook()
