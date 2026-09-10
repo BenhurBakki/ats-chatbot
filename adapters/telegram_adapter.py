@@ -14,7 +14,7 @@ import urllib.request
 import urllib.error
 from typing import Dict, Any, Optional
 
-from adapters.channel_manager import channel_manager
+from adapters.channel_manager import channel_manager, is_greeting
 from core.courses_db import COURSE_CATALOG
 
 # Bot credentials
@@ -154,8 +154,17 @@ class TelegramAdapter:
             try:
                 import docx
                 doc = docx.Document(io.BytesIO(file_bytes))
-                paras = [p.text for p in doc.paragraphs if p.text]
-                return "\n".join(paras).strip()
+                parts = []
+                for p in doc.paragraphs:
+                    t = p.text.strip()
+                    if t:
+                        parts.append(t)
+                for table in doc.tables:
+                    for row in table.rows:
+                        row_text = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
+                        if row_text:
+                            parts.append(row_text)
+                return "\n".join(parts).strip()
             except Exception as e:
                 return f"[Error parsing Word Document: {e}]"
 
@@ -231,6 +240,7 @@ class TelegramAdapter:
             f"<b>{badge} ATS Evaluation Report: {target_role}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"👤 <b>Candidate:</b> {candidate}\n"
+            f"💼 <b>Target Role:</b> {target_role}\n"
             f"🎯 <b>ATS Score:</b> <code>{score}%</code> [{status_text}]\n"
             f"<code>[{score_bar}] {score}%</code>\n\n"
             f"📊 <b>Detailed Analytics Breakdown:</b>\n"
@@ -268,7 +278,9 @@ class TelegramAdapter:
             return {"ok": True, "status": "no_chat_id"}
 
         user_info = message.get("from", {})
-        first_name = user_info.get("first_name", "Candidate")
+        first_name = user_info.get("first_name", "")
+        last_name = user_info.get("last_name", "")
+        tg_full_name = f"{first_name} {last_name}".strip() or "Candidate"
         session_user_id = f"tg_{chat_id}"
 
         # 1. Check for Document / Resume Upload (PDF, Word, Text)
@@ -296,25 +308,21 @@ class TelegramAdapter:
 
             # Extract text
             extracted_text = cls.extract_text_from_document(filename, file_bytes)
-            if not extracted_text or len(extracted_text) < 20:
+            if not extracted_text or len(extracted_text) < 15 or extracted_text.startswith("[Error"):
                 cls.send_message(
                     chat_id,
-                    f"⚠️ <i>Could not extract readable text from <b>{html.escape(filename)}</b>. Make sure it is not a scanned image PDF.</i>"
+                    f"⚠️ <i>Unable to parse readable text from <b>{html.escape(filename)}</b>. Make sure it is a valid .docx or .pdf document (not a scanned image), or paste the text directly.</i>"
                 )
                 return {"ok": True, "status": "empty_extracted_text"}
 
-            # Notify user that parsing succeeded
-            cls.send_message(
-                chat_id,
-                f"📄 <b>Received:</b> <code>{html.escape(filename)}</code> ({len(extracted_text)} chars extracted).\n⚙️ <i>Analyzing ATS match against Job Description...</i>"
-            )
             cls.send_chat_action(chat_id, "typing")
 
-            # Feed extracted text as resume into session
+            # Feed extracted text into session with fallback details
             response = channel_manager.handle_message(
                 user_id=session_user_id,
                 channel="telegram",
-                text=extracted_text
+                text=extracted_text,
+                attachments=[{"filename": filename, "candidate_name": tg_full_name}]
             )
 
             # If analysis was performed, format beautifully
@@ -333,12 +341,12 @@ class TelegramAdapter:
 
         text_lower = text.lower()
 
-        # Command: helo, hello, /start, start, hi, hey
-        if text_lower in ["helo", "hello", "hi", "hey", "/helo", "/hello", "/start", "start", "/hi"]:
+        # Command: helo, hello, /start, start, or ANY conversational greeting
+        if is_greeting(text) or text_lower in ["helo", "hello", "hi", "hey", "/helo", "/hello", "/start", "start", "/hi"]:
             session = channel_manager.get_or_create_session(session_user_id, "telegram")
             session.reset()
             welcome = (
-                f"👋 <b>Welcome {html.escape(first_name)} to BenBot (@BennhurBot)!</b>\n\n"
+                f"👋 <b>Welcome {html.escape(tg_full_name)} to BenBot (@BennhurBot)!</b>\n\n"
                 f"I am your AI-powered <b>ATS Resume Optimizer & Skill Matcher</b>.\n\n"
                 f"<b>How to use:</b>\n"
                 f"1️⃣ Send or paste your <b>Job Description (JD)</b> (e.g. <i>'JD for Senior Data Analyst: 3+ years Python, SQL...'</i>)\n"
@@ -383,7 +391,7 @@ class TelegramAdapter:
             session.reset()
             cls.send_message(
                 chat_id,
-                "🔄 <b>Session Reset!</b>\n\nPlease send or paste a new <b>Job Description (JD)</b> to begin."
+                "🔄 <b>Session Reset!</b>\n\nPlease send or paste a new <b>Job Description (JD)</b> or upload your <b>Resume</b> to begin."
             )
             return {"ok": True, "status": "session_reset"}
 
@@ -419,7 +427,8 @@ class TelegramAdapter:
         response = channel_manager.handle_message(
             user_id=session_user_id,
             channel="telegram",
-            text=text
+            text=text,
+            attachments=[{"candidate_name": tg_full_name}]
         )
 
         # Format output

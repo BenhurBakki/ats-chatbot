@@ -4,6 +4,7 @@ Analyzes resumes against Job Descriptions, generates think-aloud evaluations,
 calculates match percentages, recommends targeted upskilling courses, and processes batch queues.
 """
 
+import os
 import re
 import math
 from typing import Dict, Any, List, Optional
@@ -13,14 +14,14 @@ from core.courses_db import get_recommended_courses
 class ATSAnalyzer:
     """Evaluates resumes against job descriptions with step-by-step think aloud reasoning."""
 
-    def analyze(self, jd_text: str, resume_text: str, role_hint: str = "", candidate_hint: str = "") -> Dict[str, Any]:
+    def analyze(self, jd_text: str, resume_text: str, role_hint: str = "", candidate_hint: str = "", filename: str = "") -> Dict[str, Any]:
         """Perform full ATS analysis and return standardized results."""
         jd_parsed = parse_text(jd_text)
         resume_parsed = parse_text(resume_text)
 
         # Detect role title & candidate name if not explicitly given
         target_role = role_hint or self._extract_role_title(jd_text)
-        candidate_name = candidate_hint or self._extract_candidate_name(resume_text)
+        candidate_name = candidate_hint or self._extract_candidate_name(resume_text, filename=filename)
 
         # 1. Skills Matching
         jd_skills = set(s.lower() for s in jd_parsed["skills"])
@@ -76,6 +77,7 @@ class ATSAnalyzer:
 
         # 7. Standardized Output String as required
         formatted_output = (
+            f"Candidate: {candidate_name}, Role: {target_role}, "
             f"ATS Score: {composite_score}%, "
             f"Breakdown: [Skills match: {skills_match_pct}%, Experience match: {exp_match_pct}%]. "
             f"Suggested Courses: {suggested_courses_str}. "
@@ -106,31 +108,131 @@ class ATSAnalyzer:
             "formatted_output": formatted_output
         }
 
-    def _extract_role_title(self, text: str) -> str:
-        """Extract or infer role title from job description."""
+    def _extract_role_from_filename(self, filename: str) -> Optional[str]:
+        """Extract role title from filename like JD_01_Senior_FullStack_Developer.docx."""
+        if not filename:
+            return None
+        base = os.path.splitext(filename)[0]
+        base = re.sub(r'[-_\.]', ' ', base)
+        stopwords = {"jd", "job", "description", "role", "spec", "v1", "v2", "doc", "docx", "pdf", "posting"}
+        words = [w for w in base.split() if w.lower() not in stopwords and not w.isdigit()]
+        if words:
+            title = " ".join(words)
+            title = re.sub(r'([a-z])([A-Z])', r'\1 \2', title)
+            return title.title()
+        return None
+
+    def _extract_role_title(self, text: str, filename: str = "") -> str:
+        """Extract or infer role title from job description or filename."""
+        # 0. Check filename if provided (e.g. JD_01_Senior_FullStack_Developer.docx)
+        if filename:
+            fn_role = self._extract_role_from_filename(filename)
+            if fn_role:
+                return fn_role
+
+        # 1. Explicit Role prefix patterns
         role_patterns = [
-            r"(?:jd|job description)\s+(?:for|:)\s*([^:\n\r,]+)",
-            r"(?:job title|position|role)\s*[:\-]\s*([^\n\r,]+)",
-            r"(?:we are looking for a|hiring an?)\s+([A-Za-z\s]+?(?:Engineer|Developer|Manager|Specialist|Analyst|Lead|Architect|Designer))",
-            r"^#+\s*([A-Za-z\s]+?(?:Engineer|Developer|Manager|Specialist|Analyst|Lead|Architect|Designer))"
+            r"(?:jd|job description)\s+(?:for|:)\s*([^\n\r,]+)",
+            r"(?:job title|position|role|designation)\s*[:\-]\s*([^\n\r,]+)",
+            r"(?:we are looking for an?|hiring an?|seeking an?)\s+([A-Za-z\s]+?(?:Engineer|Developer|Manager|Specialist|Analyst|Lead|Architect|Designer|Scientist|Consultant))",
+            r"^#+\s*([A-Za-z\s]+?(?:Engineer|Developer|Manager|Specialist|Analyst|Lead|Architect|Designer|Scientist))"
         ]
         for p in role_patterns:
             m = re.search(p, text, re.IGNORECASE | re.MULTILINE)
             if m:
                 clean = m.group(1).strip()
-                if len(clean) < 45:
-                    return clean
-        first_line = text.strip().split("\n")[0][:40].strip()
-        return first_line if first_line else "Target Role"
+                clean = re.sub(r'[:\-\|].*$', '', clean).strip()
+                if 3 <= len(clean) < 45 and clean.lower() not in ["job description", "requirements", "responsibilities"]:
+                    return clean.title()
 
-    def _extract_candidate_name(self, text: str) -> str:
-        """Extract candidate name from resume header."""
+        # 2. Search for common industry title in text
+        title_pattern = r'\b(?:Senior|Junior|Lead|Principal|Staff|Chief|Associate)?\s*(?:Software|Full\s*Stack|Frontend|Backend|DevOps|Cloud|Data|ML|AI|Machine\s*Learning|Product|Project|QA|Test|System|Network|Cyber\s*Security|Security|Database|Business|Marketing|HR|Sales)?\s*(?:Engineer|Developer|Analyst|Scientist|Architect|Manager|Specialist|Designer|Consultant|Administrator|Officer|Director|Intern)\b'
+        m_title = re.search(title_pattern, text, re.IGNORECASE)
+        if m_title:
+            clean = m_title.group(0).strip()
+            if 3 <= len(clean) < 45:
+                return clean.title()
+
+        # 3. First non-empty line fallback
+        for line in text.strip().split("\n"):
+            cleaned = line.strip()
+            if cleaned and len(cleaned) < 40 and not any(k in cleaned.lower() for k in ["requirements", "responsibilities", "about us", "overview"]):
+                return cleaned.title()
+
+        return "Target Role"
+
+    def _extract_name_from_filename(self, filename: str) -> Optional[str]:
+        """Extract candidate name from file names like Benhur_Bakki_Resume.pdf."""
+        if not filename:
+            return None
+        base = os.path.splitext(filename)[0]
+        base = re.sub(r'[-_\.]', ' ', base)
+        stopwords = {
+            "resume", "cv", "curriculum", "vitae", "profile", "updated", "latest",
+            "new", "final", "draft", "doc", "pdf", "docx", "ats", "version", "v1", "v2"
+        }
+        words = [w for w in base.split() if w.lower() not in stopwords and re.match(r'^[A-Za-z]+$', w)]
+        if 2 <= len(words) <= 4:
+            return " ".join(words).title()
+        return None
+
+    def _extract_candidate_name(self, text: str, filename: str = "") -> str:
+        """Extract candidate name from resume text, explicit headers, or filename."""
+        # 1. Check explicit name markers in text
+        patterns = [
+            r'(?:^|\n)\s*(?:candidate|applicant|student)?\s*name\s*[:\-]\s*([A-Za-z\s\.\'-]{2,35})',
+            r'(?:^|\n)\s*(?:resume|cv|curriculum\s+vitae|profile)\s+(?:of|for)\s+([A-Za-z\s\.\'-]{2,35})',
+            r'(?:^|\n)\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*[:\-\|]\s*(?:resume|cv|email|phone|software|data|developer|engineer|\d|\+)',
+            r'^(?:i\s*am|my\s*name\s*is)\s+([A-Za-z\s\.\'-]{2,35})'
+        ]
+        for p in patterns:
+            m = re.search(p, text, re.IGNORECASE | re.MULTILINE)
+            if m:
+                cand = m.group(1).strip()
+                cand = re.sub(r'[^\w\s\.\'-]', '', cand).strip()
+                if 2 <= len(cand.split()) <= 4 and len(cand) <= 35:
+                    return cand.title()
+
+        # 2. Check filename if provided (e.g. "Benhur_Bakki_Resume.pdf")
+        if filename:
+            name_from_file = self._extract_name_from_filename(filename)
+            if name_from_file:
+                return name_from_file
+
+        # 3. Header inspection of first few non-empty lines
         lines = [l.strip() for l in text.strip().split("\n") if l.strip()]
-        for line in lines[:3]:
-            # If line is 2-3 words and not a section title
-            words = line.split()
-            if 1 < len(words) <= 3 and not any(k in line.lower() for k in ["resume", "curriculum", "page", "phone", "email", "skills", "experience"]):
-                return line
+        for line in lines[:8]:
+            cleaned = re.sub(r'[*#_~`]', '', line).strip()
+            # If line starts with "Resume of ...", handle it
+            res_match = re.match(r'(?:resume|cv|profile)\s+(?:of|for)\s+([A-Za-z\s\.\'-]+)', cleaned, re.I)
+            if res_match:
+                cand = res_match.group(1).strip()
+                if 2 <= len(cand.split()) <= 4:
+                    return cand.title()
+
+            # Remove email, phone, links
+            cleaned = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', cleaned)
+            cleaned = re.sub(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}', '', cleaned)
+            cleaned = re.sub(r'https?://\S+', '', cleaned)
+            cleaned = re.sub(r'(?:linkedin|github)\.com/\S+', '', cleaned, flags=re.I)
+
+            # Split by delimiters like |, •, -, :, /
+            segments = re.split(r'[:\|\•\–\—\-\/\t,]', cleaned)
+            for seg in segments:
+                cand = seg.strip()
+                words = cand.split()
+                if 2 <= len(words) <= 3:
+                    bad_words = {
+                        "curriculum", "vitae", "resume", "profile", "summary",
+                        "experience", "education", "skills", "projects", "contact",
+                        "objective", "page", "phone", "email", "address", "details",
+                        "work", "history", "qualification", "qualifications", "developer",
+                        "engineer", "analyst", "manager", "data", "software", "senior", "junior"
+                    }
+                    if not any(w.lower() in bad_words for w in words):
+                        if all(re.match(r'^[A-Za-z\.\'-]+$', w) for w in words):
+                            return cand.title()
+
         return "Candidate"
 
     def _extract_keywords(self, text: str) -> set[str]:
@@ -183,7 +285,7 @@ class ATSAnalyzer:
         missing_str = ", ".join([s.title() for s in missing_skills[:4]]) if missing_skills else "Niche tool certifications"
 
         return {
-            "title_analysis": f"Evaluated candidate qualifications against the position of {target_role}. Estimated requirements call for approximately {jd_exp_req:.1f} years of relevant industry experience.",
+            "title_analysis": f"Evaluated candidate qualifications for {candidate_name} against the position of {target_role}. Estimated requirements call for approximately {jd_exp_req:.1f} years of relevant industry experience.",
             "skills_match": f"The candidate demonstrated {skills_match_pct}% skills alignment. Strong proficiencies identified in {matched_str}. Gap areas detected in {missing_str}.",
             "experience_match": f"Experience match scored at {exp_match_pct}%. Candidate demonstrates approximately {resume_exp:.1f} years of professional background compared to the requested {jd_exp_req:.1f} years.",
             "areas_for_improvement": f"Recommend highlighting measurable project impacts (KPIs/ROI), closing key competencies in {missing_str}, and emphasizing cross-functional leadership."
