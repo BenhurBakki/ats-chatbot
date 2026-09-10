@@ -18,6 +18,7 @@ class UserSession:
         self.current_resume = ""
         self.candidate_hint = ""
         self.last_analysis: Optional[Dict[str, Any]] = None
+        self.evaluated_candidates: list[Dict[str, Any]] = []
         self.batch_jds: list[str] = []
         self.last_activity = time.time()
 
@@ -28,6 +29,7 @@ class UserSession:
         self.current_resume = ""
         self.candidate_hint = ""
         self.last_analysis = None
+        self.evaluated_candidates = []
         self.batch_jds = []
         self.last_activity = time.time()
 
@@ -289,8 +291,8 @@ class ChannelManager:
             session.current_jd = text_clean
             session.role_hint = self.analyzer._extract_role_title(text_clean, filename=filename)
 
-            # Both JD and Resume are available -> Run evaluation!
-            if session.current_resume:
+            # If user sent resume first in this initial session
+            if session.current_resume and not session.evaluated_candidates:
                 analysis = self.analyzer.analyze(
                     jd_text=session.current_jd,
                     resume_text=session.current_resume,
@@ -299,6 +301,8 @@ class ChannelManager:
                     filename=filename
                 )
                 session.last_analysis = analysis
+                session.evaluated_candidates.append(analysis)
+                analysis["leaderboard"] = session.evaluated_candidates
                 session.state = "ANALYZED"
                 return {
                     "reply_text": self._format_chat_response(analysis),
@@ -306,6 +310,9 @@ class ChannelManager:
                     "state": session.state
                 }
             else:
+                # Setting a new JD clears previous candidate leaderboard
+                session.current_resume = ""
+                session.evaluated_candidates = []
                 session.state = "WAITING_FOR_RESUME"
                 fn_str = f" (<code>{filename}</code>)" if filename else ""
                 return {
@@ -313,20 +320,21 @@ class ChannelManager:
                         f"📋 <b>Job Description Received & Recognized!</b>{fn_str}\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n"
                         f"💼 <b>Target Role:</b> {session.role_hint}\n\n"
-                        f"👉 <b>Step 2:</b> Now upload or send the <b>Candidate's Resume</b> (.pdf / .docx or text) to evaluate ATS match!"
+                        f"👉 <b>Step 2:</b> Now upload or send <b>Candidate Resumes</b> (.pdf / .docx or text) to evaluate against this JD!\n\n"
+                        f"💡 <i>Tip: You can upload multiple resumes one after another for this same role!</i>"
                     ),
                     "state": session.state
                 }
 
-        # 2. Input is a RESUME
-        elif doc_type == "RESUME" or (doc_type == "UNKNOWN" and session.state == "WAITING_FOR_RESUME"):
+        # 2. Input is a RESUME (or any subsequent document for active JD)
+        elif doc_type == "RESUME" or (session.current_jd and session.state in ["WAITING_FOR_RESUME", "ANALYZED"]):
             session.current_resume = text_clean
             cand_name = self.analyzer._extract_candidate_name(text_clean, filename=filename)
             if cand_name == "Candidate" and candidate_fallback:
                 cand_name = candidate_fallback
             session.candidate_hint = cand_name
 
-            # Both Resume and JD are available -> Run evaluation!
+            # Evaluate against current active JD
             if session.current_jd:
                 analysis = self.analyzer.analyze(
                     jd_text=session.current_jd,
@@ -336,6 +344,8 @@ class ChannelManager:
                     filename=filename
                 )
                 session.last_analysis = analysis
+                session.evaluated_candidates.append(analysis)
+                analysis["leaderboard"] = session.evaluated_candidates
                 session.state = "ANALYZED"
                 return {
                     "reply_text": self._format_chat_response(analysis),
@@ -418,7 +428,19 @@ class ChannelManager:
             f"📈 *Overall Analytics:* [{overall}]"
         )
 
-        return header_section + think_aloud_section + standard_output
+        # Leaderboard if multiple resumes analyzed for this JD
+        leaderboard_section = ""
+        candidates = analysis.get("leaderboard", [])
+        if len(candidates) > 1:
+            lb_lines = []
+            for idx, c in enumerate(sorted(candidates, key=lambda x: x.get("ats_score", 0), reverse=True), start=1):
+                c_name = c.get("candidate_name", f"Candidate {idx}")
+                c_score = c.get("ats_score", 0)
+                badge = "🟢" if c_score >= 80 else "🟡" if c_score >= 60 else "🔴"
+                lb_lines.append(f"{idx}. {badge} *{c_name}*: `{c_score}%`")
+            leaderboard_section = f"\n\n🏆 *Candidates Ranked for {target_role} ({len(candidates)} total):*\n" + "\n".join(lb_lines)
+
+        return header_section + think_aloud_section + standard_output + leaderboard_section
 
 
 # Global singleton instance

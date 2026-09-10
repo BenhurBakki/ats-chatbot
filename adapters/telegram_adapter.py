@@ -138,8 +138,45 @@ class TelegramAdapter:
             return None
 
     @classmethod
+    def extract_text_from_image(cls, image_bytes: bytes, filename: str = "") -> str:
+        """Extract text from image bytes using native Windows OCR or Pillow."""
+        import tempfile
+        import subprocess
+        ext = os.path.splitext(filename)[1] if filename else ".png"
+        if not ext or ext.lower() not in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]:
+            ext = ".png"
+
+        tmp_path = os.path.join(tempfile.gettempdir(), f"ats_ocr_{os.getpid()}_{int(time.time()*1000)}{ext}")
+        try:
+            with open(tmp_path, "wb") as f:
+                f.write(image_bytes)
+
+            ocr_helper_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ocr_helper.ps1")
+            if os.path.exists(ocr_helper_path):
+                try:
+                    res = subprocess.run(
+                        ["powershell", "-ExecutionPolicy", "Bypass", "-File", ocr_helper_path, "-ImagePath", tmp_path],
+                        capture_output=True,
+                        text=True,
+                        timeout=25
+                    )
+                    text = res.stdout.strip()
+                    if text and len(text) > 10:
+                        return text
+                except Exception:
+                    pass
+
+            return "[Image OCR: Text could not be clearly extracted. Please upload a PDF or Word document.]"
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+    @classmethod
     def extract_text_from_document(cls, filename: str, file_bytes: bytes) -> str:
-        """Extract text from PDF, DOCX, or TXT file bytes."""
+        """Extract text from PDF, Word (.docx, .doc, .docs), Images (.png, .jpg, .jpeg), or TXT bytes."""
         lower_name = filename.lower()
         if lower_name.endswith(".pdf"):
             try:
@@ -150,7 +187,8 @@ class TelegramAdapter:
             except Exception as e:
                 return f"[Error parsing PDF: {e}]"
 
-        elif lower_name.endswith(".docx") or lower_name.endswith(".doc"):
+        elif lower_name.endswith((".docx", ".doc", ".docs", ".dotx")):
+            # 1. Try python-docx
             try:
                 import docx
                 doc = docx.Document(io.BytesIO(file_bytes))
@@ -164,9 +202,35 @@ class TelegramAdapter:
                         row_text = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
                         if row_text:
                             parts.append(row_text)
-                return "\n".join(parts).strip()
+                res = "\n".join(parts).strip()
+                if len(res) > 10:
+                    return res
+            except Exception:
+                pass
+
+            # 2. Binary .doc or corrupted docx fallback: regex extract printable text tokens
+            try:
+                raw_str = file_bytes.decode("utf-8", errors="ignore")
+                matches = re.findall(r'[A-Za-z0-9\s,\.:;@\+\#\-\(\)\/\'\"]{4,}', raw_str)
+                cleaned = " ".join([m.strip() for m in matches if len(m.strip()) > 3])
+                if len(cleaned) > 20:
+                    return cleaned
+            except Exception:
+                pass
+
+            try:
+                raw_str = file_bytes.decode("latin-1", errors="ignore")
+                matches = re.findall(r'[A-Za-z0-9\s,\.:;@\+\#\-\(\)\/\'\"]{4,}', raw_str)
+                cleaned = " ".join([m.strip() for m in matches if len(m.strip()) > 3])
+                if len(cleaned) > 20:
+                    return cleaned
             except Exception as e:
                 return f"[Error parsing Word Document: {e}]"
+
+            return "[Error parsing Word Document: unable to extract text]"
+
+        elif lower_name.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff")):
+            return cls.extract_text_from_image(file_bytes, filename)
 
         else:
             try:
@@ -236,6 +300,21 @@ class TelegramAdapter:
         exp_analysis = html.escape(str(ta.get("experience_match", "")))
         improvement = html.escape(str(ta.get("areas_for_improvement", "")))
 
+        # Candidate Leaderboard for current JD
+        leaderboard_section = ""
+        candidates = analysis.get("leaderboard", [])
+        if len(candidates) > 1:
+            lb_lines = []
+            for idx, c in enumerate(sorted(candidates, key=lambda x: x.get("ats_score", 0), reverse=True), start=1):
+                c_name = html.escape(c.get("candidate_name", f"Candidate {idx}"))
+                c_score = c.get("ats_score", 0)
+                c_badge = "🟢" if c_score >= 80 else "🟡" if c_score >= 60 else "🔴"
+                lb_lines.append(f"{idx}. {c_badge} <b>{c_name}</b>: <code>{c_score}%</code>")
+            leaderboard_section = (
+                f"\n\n🏆 <b>Candidates Ranked for {target_role} ({len(candidates)} total):</b>\n"
+                + "\n".join(lb_lines)
+            )
+
         msg = (
             f"<b>{badge} ATS Evaluation Report: {target_role}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -256,7 +335,8 @@ class TelegramAdapter:
             f"🎓 <b>Suggested Courses:</b>\n{courses_html}\n\n"
             f"📈 <b>Overall Analytics:</b>\n"
             f"💪 <i>Strengths:</i> {strengths}\n"
-            f"🚀 <i>Areas for Growth:</i> {improvements}\n"
+            f"🚀 <i>Areas for Growth:</i> {improvements}"
+            f"{leaderboard_section}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💡 <i>Type <b>courses</b> for direct links, <b>reset</b> to clear, or <b>helo</b> to start over!</i>"
         )
@@ -283,11 +363,18 @@ class TelegramAdapter:
         tg_full_name = f"{first_name} {last_name}".strip() or "Candidate"
         session_user_id = f"tg_{chat_id}"
 
-        # 1. Check for Document / Resume Upload (PDF, Word, Text)
+        # 1. Check for Document or Photo Upload (PDF, Word, Images, Text)
         document = message.get("document")
-        if document:
-            file_id = document.get("file_id")
-            filename = document.get("file_name", "Resume.pdf")
+        photo = message.get("photo")
+
+        if document or photo:
+            if document:
+                file_id = document.get("file_id")
+                filename = document.get("file_name", "Resume.pdf")
+            else:
+                file_id = photo[-1].get("file_id")
+                filename = "scan_resume.jpg"
+
             cls.send_chat_action(chat_id, "upload_document")
 
             file_path = cls.get_file_info(file_id)
@@ -302,7 +389,7 @@ class TelegramAdapter:
             if not file_bytes:
                 cls.send_message(
                     chat_id,
-                    "⚠️ <i>Could not read uploaded document data. Please ensure it is a valid PDF or DOCX file.</i>"
+                    "⚠️ <i>Could not read uploaded document data. Please ensure it is a valid document or image.</i>"
                 )
                 return {"ok": True, "status": "file_read_error"}
 
@@ -311,7 +398,7 @@ class TelegramAdapter:
             if not extracted_text or len(extracted_text) < 15 or extracted_text.startswith("[Error"):
                 cls.send_message(
                     chat_id,
-                    f"⚠️ <i>Unable to parse readable text from <b>{html.escape(filename)}</b>. Make sure it is a valid .docx or .pdf document (not a scanned image), or paste the text directly.</i>"
+                    f"⚠️ <i>Unable to parse readable text from <b>{html.escape(filename)}</b>. Make sure it is a valid document (.docx, .pdf, or clear image), or paste the text directly.</i>"
                 )
                 return {"ok": True, "status": "empty_extracted_text"}
 
