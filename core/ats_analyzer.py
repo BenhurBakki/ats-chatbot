@@ -109,7 +109,8 @@ class ATSAnalyzer:
     def _extract_role_title(self, text: str) -> str:
         """Extract or infer role title from job description."""
         role_patterns = [
-            r"(?:job title|position|role)\s*[:\-]\s*([^\n\r]+)",
+            r"(?:jd|job description)\s+(?:for|:)\s*([^:\n\r,]+)",
+            r"(?:job title|position|role)\s*[:\-]\s*([^\n\r,]+)",
             r"(?:we are looking for a|hiring an?)\s+([A-Za-z\s]+?(?:Engineer|Developer|Manager|Specialist|Analyst|Lead|Architect|Designer))",
             r"^#+\s*([A-Za-z\s]+?(?:Engineer|Developer|Manager|Specialist|Analyst|Lead|Architect|Designer))"
         ]

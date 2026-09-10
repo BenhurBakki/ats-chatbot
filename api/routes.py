@@ -12,6 +12,7 @@ from adapters.channel_manager import channel_manager
 from adapters.whatsapp_adapter import WhatsAppAdapter
 from adapters.slack_adapter import SlackAdapter
 from adapters.instagram_adapter import InstagramAdapter
+from adapters.telegram_adapter import TelegramAdapter
 
 router = APIRouter()
 analyzer = ATSAnalyzer()
@@ -45,7 +46,7 @@ def health():
     return {
         "status": "healthy",
         "service": "ATS Optimization & Tracking Bot",
-        "channels_supported": ["whatsapp", "slack", "instagram", "web_api"],
+        "channels_supported": ["telegram", "whatsapp", "slack", "instagram", "web_api"],
         "version": "1.0.0"
     }
 
@@ -134,3 +135,25 @@ async def handle_slack_command(request: Request):
     dict_form = dict(form_data)
     res = SlackAdapter.handle_slash_command(dict_form)
     return res
+
+# 9. Telegram Bot Webhooks & Setup
+@router.post("/webhook/telegram")
+async def handle_telegram_webhook(request: Request):
+    """Receive live Telegram updates via webhook for @BennhurBot."""
+    payload = await request.json()
+    res = TelegramAdapter.handle_update(payload)
+    return res
+
+@router.get("/api/telegram/info")
+def get_telegram_info():
+    """Check Telegram bot status and webhook info."""
+    bot = TelegramAdapter.get_me()
+    hook = TelegramAdapter.get_webhook_info()
+    return {"bot": bot, "webhook": hook}
+
+@router.post("/api/telegram/set-webhook")
+def set_telegram_webhook(webhook_url: str = Form(...)):
+    """Set the public webhook URL for Telegram."""
+    res = TelegramAdapter.set_webhook(webhook_url)
+    return res
+

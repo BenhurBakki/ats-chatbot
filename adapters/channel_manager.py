@@ -4,13 +4,14 @@ Handles conversational state across WhatsApp, Instagram, Slack, and Web interfac
 """
 
 import time
+import re
 from typing import Dict, Any, Optional
 from core.ats_analyzer import ATSAnalyzer, BatchATSQueue
 
 class UserSession:
     def __init__(self, user_id: str, channel: str):
         self.user_id = user_id
-        self.channel = channel  # 'whatsapp', 'slack', 'instagram', 'web'
+        self.channel = channel  # 'telegram', 'whatsapp', 'slack', 'instagram', 'web'
         self.state = "IDLE"     # IDLE, WAITING_FOR_JD, WAITING_FOR_RESUME, ANALYZED
         self.current_jd = ""
         self.role_hint = ""

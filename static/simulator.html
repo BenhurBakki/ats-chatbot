@@ -16,6 +16,7 @@
     .channel-btn.active { border-color: rgba(99,102,241,0.6); background: rgba(99,102,241,0.1); }
     .ch-pip { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .ch-wa-p { background: #25d366; box-shadow: 0 0 6px #25d366; }
+    .ch-tg-p { background: #229ED9; box-shadow: 0 0 6px #229ED9; }
     .ch-sl-p { background: #e01e5a; box-shadow: 0 0 6px #e01e5a; }
     .ch-ig-p { background: #e1306c; box-shadow: 0 0 6px #e1306c; }
     .channel-btn div strong { display: block; font-size: 0.9rem; }
@@ -72,7 +73,11 @@
       <div>
         <div class="card" style="margin-bottom:1rem;">
           <div class="card-title">📱 Select Channel</div>
-          <button class="channel-btn active" data-channel="whatsapp">
+          <button class="channel-btn active" data-channel="telegram">
+            <div class="ch-pip ch-tg-p"></div>
+            <div><strong>Telegram</strong><small>@BennhurBot (Live)</small></div>
+          </button>
+          <button class="channel-btn" data-channel="whatsapp">
             <div class="ch-pip ch-wa-p"></div>
             <div><strong>WhatsApp</strong><small>Meta Cloud API</small></div>
           </button>
@@ -84,6 +89,10 @@
             <div class="ch-pip ch-ig-p"></div>
             <div><strong>Instagram</strong><small>Meta Graph Messaging</small></div>
           </button>
+
+          <a href="https://t.me/BennhurBot" target="_blank" class="btn" style="width:100%; display:flex; align-items:center; justify-content:center; gap:0.5rem; margin-top:0.75rem; background:rgba(34,158,217,0.15); border:1px solid #229ED9; color:#67e8f9; text-decoration:none; padding:0.6rem; border-radius:8px; font-size:0.84rem; font-weight:600;">
+            ✈️ Open Live: t.me/BennhurBot
+          </a>
         </div>
 
         <div class="card">
@@ -132,12 +141,13 @@
   <script src="ats_engine.js"></script>
   <script>
   (function () {
-    let activeChannel = 'whatsapp';
+    let activeChannel = 'telegram';
     let state = 'IDLE';
     let storedJD = '';
     let lastResult = null;
 
     const channelConfig = {
+      telegram: { name: 'BenBot (@BennhurBot)', sub: 'Online — Telegram Bot API (Live)', avatarBg: '#229ED9', avatar: '✈️', topbar: '#17212b', inputbar: '#0e1621', webhook: '/webhook/telegram' },
       whatsapp: { name: 'ATS WhatsApp Bot', sub: 'Online — Meta Cloud API', avatarBg: '#128C7E', avatar: '🤖', topbar: '#075e54', inputbar: '#0f1829', webhook: '/webhook/whatsapp' },
       slack:    { name: 'ATS Slack Bot', sub: 'Online — Events API', avatarBg: '#4a154b', avatar: '🟣', topbar: '#1a1d21', inputbar: '#1a1d21', webhook: '/webhook/slack' },
       instagram:{ name: 'ATS Instagram Bot', sub: 'Online — Meta Graph API', avatarBg: '#833ab4', avatar: '🟠', topbar: '#1a1128', inputbar: '#1a1128', webhook: '/webhook/instagram' }
@@ -273,8 +283,11 @@
       return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
+    // Initialize default channel theme
+    applyChannelTheme(activeChannel);
+
     // Initial welcome message
-    addBotMsg('👋 <strong>Welcome to ATS Copilot Bot!</strong><br><br>I evaluate resumes against Job Descriptions with AI-powered think-aloud scoring.<br><br>📋 <strong>Step 1:</strong> Send a <strong>Job Description</strong> to start — or click a Quick Test chip on the left!');
+    addBotMsg('👋 <strong>Welcome to BenBot (@BennhurBot)!</strong><br><br>I evaluate resumes against Job Descriptions with AI-powered think-aloud scoring.<br><br>📋 <strong>Step 1:</strong> Send a <strong>Job Description</strong> to start — or click a Quick Test chip on the left!');
   })();
   </script>
 </body>
